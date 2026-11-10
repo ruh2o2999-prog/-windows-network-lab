@@ -163,9 +163,11 @@ jobs:
           echo "37ae4a41a8886e15c20b8362fa4250f96bbdb55e1a608199ad8b5dff068b588f  /tmp/baksmali.jar" | sha256sum -c -
           echo "32fa0e88a6c397b3922201adf5f3e534fbaed5a663c71d0c558c3ddce0af844a  /tmp/smali.jar" | sha256sum -c -
           mkdir -p /tmp/smali_kiwi
-          java -jar /tmp/baksmali.jar disassemble output/host/classes.dex -o /tmp/smali_kiwi
+          java -jar /tmp/baksmali.jar disassemble -a 25 output/host/classes.dex -o /tmp/smali_kiwi
           find /tmp/smali_kiwi -name '*.smali' | wc -l
-          java -jar /tmp/smali.jar assemble /tmp/smali_kiwi -o output/host/classes.roundtrip.dex
+          java -jar /tmp/smali.jar assemble -a 25 /tmp/smali_kiwi -o output/host/classes.roundtrip.dex
+          mkdir -p output/tools
+          cp /tmp/baksmali.jar /tmp/smali.jar output/tools/
           python - <<'PY'
           import pathlib,json,hashlib,shutil
           root=pathlib.Path('/tmp/smali_kiwi');out=pathlib.Path('output/host')
@@ -179,7 +181,7 @@ jobs:
                   found.append({'source':str(p.relative_to(root)),'copied':str(target),'sha256':hashlib.sha256(s.encode()).hexdigest(),'occurrences':s.count('setUseSoftMenu')})
           dex=(out/'classes.roundtrip.dex').read_bytes()
           source=(out/'classes.dex').read_bytes()
-          result={'original_size':len(source),'roundtrip_size':len(dex),'dex_header':dex[:8].hex(),'roundtrip_sha256':hashlib.sha256(dex).hexdigest(),'original_sha256':hashlib.sha256(source).hexdigest(),'target_matches':found,'success':dex[:4]==b'dex\n' and len(found)==1 and b'setUseSoftMenu' in dex}
+          result={'original_size':len(source),'roundtrip_size':len(dex),'dex_header':dex[:8].hex(),'roundtrip_sha256':hashlib.sha256(dex).hexdigest(),'original_sha256':hashlib.sha256(source).hexdigest(),'target_matches':found,'success':dex[:8]==source[:8] and len(found)==1 and b'setUseSoftMenu' in dex}
           (out/'smali_roundtrip_report.json').write_text(json.dumps(result,indent=2))
           print(json.dumps(result,indent=2))
           if not result['success']:raise SystemExit('DEX roundtrip check failed')
