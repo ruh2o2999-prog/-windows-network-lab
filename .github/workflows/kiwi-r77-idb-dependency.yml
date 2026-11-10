@@ -1,0 +1,22 @@
+name: Kiwi R77 IndexedDB offline test dependency
+on:
+  push:
+    branches: [kiwi-ux07-apk-probe-20261110]
+    paths: ['.github/workflows/kiwi-r77-idb-dependency.yml']
+jobs:
+  idb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions: {contents: read}
+    steps:
+      - name: Download offline fake-indexeddb test dependency
+        run: |
+          mkdir -p /tmp/kiwi-r77-idb
+          cd /tmp/kiwi-r77-idb
+          npm pack fake-indexeddb@6.2.5
+          sha256sum *.tgz > SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r77-idb-test-dependency
+          path: /tmp/kiwi-r77-idb/
+          retention-days: 7
