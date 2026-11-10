@@ -1,0 +1,51 @@
+name: Kiwi UX07 official APK artifact transfer
+on:
+  push:
+    branches:
+      - kiwi-ux07-apk-probe-20261110
+    paths:
+      - .github/workflows/kiwi-137-apk-export.yml
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Download and verify official isolated ARM64 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=https://github.com/kiwibrowser/src.next/releases/download/14310011181/com.kiwibrowser.browser.dev-arm64-14310011181-github.apk
+          curl -fL --retry 4 --retry-all-errors --connect-timeout 25 --max-time 480 -o /tmp/kiwi137.apk "$url"
+          test "$(stat -c '%s' /tmp/kiwi137.apk)" = 243967287
+          echo "Official Kiwi APK SHA256:"
+          sha256sum /tmp/kiwi137.apk
+          mkdir -p /tmp/kiwi_parts
+          split -b 64000000 -d -a 2 /tmp/kiwi137.apk /tmp/kiwi_parts/kiwi137.part.
+          test "$(find /tmp/kiwi_parts -name '*.part.*' | wc -l)" = 4
+          ls -lh /tmp/kiwi_parts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiwi137-official-00
+          path: /tmp/kiwi_parts/kiwi137.part.00
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiwi137-official-01
+          path: /tmp/kiwi_parts/kiwi137.part.01
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiwi137-official-02
+          path: /tmp/kiwi_parts/kiwi137.part.02
+          compression-level: 0
+          retention-days: 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiwi137-official-03
+          path: /tmp/kiwi_parts/kiwi137.part.03
+          compression-level: 0
+          retention-days: 2
