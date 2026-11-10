@@ -1,0 +1,94 @@
+name: Kiwi V073 media parity with yt-dlp
+on:
+  push:
+    branches: [kiwi-ux07-apk-probe-20261110]
+    paths: ['.github/workflows/kiwi-media-parity-ytdlp.yml']
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Prepare established media tool and self-owned fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q --disable-pip-version-check yt-dlp cryptography
+          mkdir -p /tmp/media-parity/output /tmp/media-parity/segments /tmp/media-parity/enc
+          cd /tmp/media-parity
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:rate=12 -t 8 -c:v mpeg2video -g 24 -bf 0 -q:v 5 -f segment -segment_time 2 -segment_format mpegts -reset_timestamps 0 segments/seg%02d.ts
+          python - <<'PY'
+          import pathlib
+          from cryptography.hazmat.primitives.ciphers import Cipher,algorithms,modes
+          from cryptography.hazmat.primitives import padding
+          r=pathlib.Path('/tmp/media-parity')
+          segs=sorted((r/'segments').glob('seg*.ts'))
+          assert len(segs)==4,len(segs)
+          keys=[bytes.fromhex('00112233445566778899aabbccddeeff'),bytes.fromhex('0f0e0d0c0b0a09080706050403020100')]
+          (r/'enc'/'key1.key').write_bytes(keys[0]);(r/'enc'/'key2.key').write_bytes(keys[1])
+          playlist=['#EXTM3U','#EXT-X-VERSION:3','#EXT-X-TARGETDURATION:2','#EXT-X-MEDIA-SEQUENCE:400','#EXT-X-PLAYLIST-TYPE:VOD']
+          for i,p in enumerate(segs):
+            if i==0: playlist.append('#EXT-X-KEY:METHOD=AES-128,URI="key1.key"')
+            if i==2: playlist.append('#EXT-X-KEY:METHOD=AES-128,URI="key2.key",IV=0x00000000000000000000000000000031')
+            key=keys[int(i>=2)]; iv=(400+i).to_bytes(16,'big') if i<2 else int(49).to_bytes(16,'big')
+            pad=padding.PKCS7(128).padder();plaintext=p.read_bytes();padded=pad.update(plaintext)+pad.finalize()
+            cipher=Cipher(algorithms.AES(key),modes.CBC(iv)).encryptor()
+            (r/'enc'/p.name).write_bytes(cipher.update(padded)+cipher.finalize())
+            playlist.extend(['#EXTINF:2.0,',p.name])
+          playlist.append('#EXT-X-ENDLIST')
+          (r/'enc'/'variant.m3u8').write_text('\n'.join(playlist)+'\n')
+          (r/'enc'/'master.m3u8').write_text('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=160x90\nvariant.m3u8\n')
+          PY
+      - name: Run real yt-dlp against broken and repaired localhost sites
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/media-parity
+          python - <<'PY'
+          import http.server,threading,pathlib,subprocess,urllib.parse,json,socket,hashlib
+          base=pathlib.Path('/tmp/media-parity');data=base/'enc';outputs=base/'output'
+          class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+              parts=urllib.parse.urlparse(self.path).path.strip('/').split('/')
+              if len(parts)!=2 or parts[0] not in ('broken','fixed') or not (data/parts[1]).is_file():
+                self.send_error(404);return
+              mode,name=parts;role=self.headers.get('Cookie','').replace(' ','')
+              if role not in ('role=trial','role=paid'):self.send_error(401);return
+              if mode=='fixed' and role=='role=trial' and name in ('seg02.ts','seg03.ts','key2.key'):
+                self.send_error(403);return
+              payload=(data/name).read_bytes()
+              self.send_response(200)
+              self.send_header('Content-Type','application/vnd.apple.mpegurl' if name.endswith('.m3u8') else 'video/mp2t' if name.endswith('.ts') else 'application/octet-stream')
+              self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+            def log_message(self,*args):pass
+          srv=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler);t=threading.Thread(target=srv.serve_forever,daemon=True);t.start()
+          port=srv.server_address[1];cases={}
+          for mode,role in [('broken','trial'),('fixed','trial'),('fixed','paid')]:
+            label=mode+'_'+role;d=outputs/label;d.mkdir(exist_ok=True)
+            url=f'http://127.0.0.1:{port}/{mode}/master.m3u8'
+            cmd=['yt-dlp','--no-progress','--no-cache-dir','--no-part','--force-overwrites','--add-header',f'Cookie: role={role}','-o',str(d/'%(title)s.%(ext)s'),url]
+            p=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=100)
+            files=[x for x in d.iterdir() if x.is_file() and x.stat().st_size>0]
+            durations=[]
+            for f in files:
+              try:
+                q=subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','json',str(f)],stderr=subprocess.DEVNULL,timeout=20)
+                durations.append(float(json.loads(q)['format']['duration']))
+              except Exception:pass
+            cases[label]={'exitCode':p.returncode,'outputBytes':sum(x.stat().st_size for x in files),'durationSeconds':max(durations) if durations else None,'stdoutTail':p.stdout.decode(errors='replace')[-500:],'stderrTail':p.stderr.decode(errors='replace')[-1400:]}
+          srv.shutdown()
+          result={'yt_dlp_version':subprocess.check_output(['yt-dlp','--version'],text=True).strip(),'scenario':'local-only HLS AES-128 multi-key preview trial','cases':cases}
+          (outputs/'yt_dlp_parity.json').write_text(json.dumps(result,indent=2))
+          print(json.dumps(result,indent=2)[:9000])
+          broken=cases['broken_trial']['durationSeconds'];paid=cases['fixed_paid']['durationSeconds'];fixed=cases['fixed_trial']['durationSeconds']
+          assert broken is not None and 7.5<broken<9.5, 'yt-dlp did not reproduce full 8s broken trial'
+          assert paid is not None and 7.5<paid<9.5, 'yt-dlp did not reproduce paid full 8s'
+          assert fixed is None or fixed<7.5, 'fixed trial should not recover full video'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kiwi-v073-ytdlp-parity-evidence
+          path: /tmp/media-parity/output/yt_dlp_parity.json
+          retention-days: 7
