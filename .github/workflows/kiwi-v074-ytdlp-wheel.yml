@@ -1,0 +1,22 @@
+name: Kiwi R74 yt-dlp offline toolchain transfer
+on:
+  push:
+    branches: [kiwi-ux07-apk-probe-20261110]
+    paths: ['.github/workflows/kiwi-v074-ytdlp-wheel.yml']
+jobs:
+  wheels:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Download pinned self-contained media analysis tool
+        run: |
+          mkdir -p /tmp/kiwi-v074-wheels
+          python -m pip download --no-deps --only-binary=:all: --disable-pip-version-check --dest /tmp/kiwi-v074-wheels yt-dlp==2026.10.26
+          sha256sum /tmp/kiwi-v074-wheels/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-v074-yt-dlp-offline-wheel
+          path: /tmp/kiwi-v074-wheels/
+          retention-days: 7
