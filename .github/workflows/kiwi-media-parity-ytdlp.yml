@@ -5,7 +5,7 @@ on:
     paths: ['.github/workflows/kiwi-media-parity-ytdlp.yml']
 jobs:
   parity:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -14,6 +14,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
           python -m pip install -q --disable-pip-version-check yt-dlp cryptography
           mkdir -p /tmp/media-parity/output /tmp/media-parity/segments /tmp/media-parity/enc
           cd /tmp/media-parity
