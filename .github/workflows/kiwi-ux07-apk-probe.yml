@@ -108,6 +108,27 @@ jobs:
           (root/'candidate_details.json').write_text(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2)[:14000])
           PY
+      - name: Extract Kiwi Android host DEX and resource evidence
+        shell: bash
+        run: |
+          python - <<'PY'
+          import zipfile,pathlib,hashlib,json
+          out=pathlib.Path('output/host');out.mkdir(parents=True,exist_ok=True)
+          selected=[];native=[]
+          with zipfile.ZipFile('kiwi.dev.arm64.apk') as z:
+              for info in z.infolist():
+                  name=info.filename
+                  native.append({'name':name,'bytes':info.file_size}) if (name.startswith('lib/') and name.endswith('.so')) else None
+                  if name=='AndroidManifest.xml' or name=='assets/resources.pak' or (name.startswith('classes') and name.endswith('.dex')):
+                      if info.file_size > 70_000_000:continue
+                      raw=z.read(info)
+                      target=out/name.replace('/','__')
+                      target.write_bytes(raw)
+                      selected.append({'name':name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),'out':target.name})
+          metadata={'selected':selected,'native_libs':sorted(native,key=lambda e:e['bytes'],reverse=True)[:50]}
+          (out/'host_inventory.json').write_text(json.dumps(metadata,indent=2))
+          print(json.dumps(metadata,indent=2)[:15000])
+          PY
       - name: Publish resource inspection evidence
         uses: actions/upload-artifact@v4
         with:
