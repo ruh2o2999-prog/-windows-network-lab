@@ -83,6 +83,10 @@ jobs:
           srv.shutdown()
           result={'yt_dlp_version':subprocess.check_output(['yt-dlp','--version'],text=True).strip(),'scenario':'local-only HLS AES-128 multi-key preview trial','cases':cases}
           (outputs/'yt_dlp_parity.json').write_text(json.dumps(result,indent=2))
+          import shutil,hashlib
+          shutil.copytree(data,outputs/'exact_remote_fixture',dirs_exist_ok=True)
+          originals=b''.join(p.read_bytes() for p in sorted((base/'segments').glob('seg*.ts')))
+          (outputs/'reference_sha256.txt').write_text(hashlib.sha256(originals).hexdigest())
           print(json.dumps(result,indent=2)[:9000])
           broken=cases['broken_trial']['durationSeconds'];paid=cases['fixed_paid']['durationSeconds'];fixed=cases['fixed_trial']['durationSeconds']
           assert broken is not None and 7.5<broken<9.5, 'yt-dlp did not reproduce full 8s broken trial'
@@ -93,5 +97,5 @@ jobs:
         if: always()
         with:
           name: kiwi-v073-ytdlp-parity-evidence
-          path: /tmp/media-parity/output/yt_dlp_parity.json
+          path: /tmp/media-parity/output/
           retention-days: 7
