@@ -1,0 +1,58 @@
+name: Windows native EXE DNS HTTPS download
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-network-smoke:
+    name: Windows-HTTPS-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.2'
+          cache: false
+      - name: Build native Windows GUI EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path bin -Force | Out-Null
+          $env:CGO_ENABLED = '0'
+          go version
+          go build -trimpath -ldflags '-H=windowsgui -s -w' -o bin/win_network_smoke_amd64.exe ./src
+          if ($LASTEXITCODE -ne 0) { throw 'GO_BUILD_FAILED' }
+          Get-FileHash bin/win_network_smoke_amd64.exe -Algorithm SHA256 | Format-List
+      - name: Execute compiled Windows EXE, fetch HTTPS and verify evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path evidence -Force | Out-Null
+          $exe = Join-Path (Get-Location) 'bin/win_network_smoke_amd64.exe'
+          $process = Start-Process -FilePath $exe -ArgumentList '-out evidence' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "EXE_FAILED_EXIT_$($process.ExitCode)" }
+          if (!(Test-Path evidence/network_report.json)) { throw 'NO_NETWORK_REPORT' }
+          $report = Get-Content evidence/network_report.json -Raw | ConvertFrom-Json
+          if ($report.overall -ne 'PASS') { throw 'NETWORK_PROBE_NOT_PASS' }
+          if (!(Test-Path evidence/example_html.html)) { throw 'NO_DOWNLOADED_HTML' }
+          $hash = (Get-FileHash evidence/example_html.html -Algorithm SHA256).Hash
+          if ($hash.ToLowerInvariant() -ne $report.probes[0].sha256.ToLowerInvariant()) { throw 'DOWNLOAD_HASH_MISMATCH' }
+          Write-Host "WINDOWS_NATIVE_EXE_DNS_HTTPS_DOWNLOAD_PASS os=$env:ImageOS"
+          Write-Host "HTTPS_HTTP_STATUS=$($report.probes[0].http_status)"
+          Write-Host "HTTPS_BYTES=$($report.probes[0].download_bytes)"
+          Get-Content evidence/network_report.json
+      - name: Preserve minimal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-https-proof-${{ matrix.os }}
+          path: evidence/
+          retention-days: 1
+          if-no-files-found: warn
