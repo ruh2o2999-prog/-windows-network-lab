@@ -129,6 +129,31 @@ jobs:
           (out/'host_inventory.json').write_text(json.dumps(metadata,indent=2))
           print(json.dumps(metadata,indent=2)[:15000])
           PY
+      - name: Decompile Kiwi native DevTools Java call sites
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-all-errors --retry-delay 3 --max-time 180 -o /tmp/jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          mkdir -p /tmp/jadx /tmp/jadx_out output/selected_sources
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          chmod +x /tmp/jadx/bin/jadx
+          /tmp/jadx/bin/jadx -j 4 --no-res -d /tmp/jadx_out output/host/classes.dex >/tmp/jadx.log 2>&1 || true
+          python - <<'PY'
+          import pathlib,json,shutil
+          root=pathlib.Path('/tmp/jadx_out/sources')
+          out=pathlib.Path('output/selected_sources')
+          matches=[]
+          for p in root.rglob('*.java'):
+              try:s=p.read_text(errors='replace')
+              except Exception:continue
+              needles=['setUseSoftMenu','devtools://','openDevTools','DevToolsServer','AppMenuBridge','DebuggingServer']
+              hits=[n for n in needles if n in s]
+              if not hits:continue
+              rel=p.relative_to(root);target=out/rel;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,target)
+              matches.append({'path':str(rel),'size':p.stat().st_size,'hits':hits})
+          (out/'devtools_java_index.json').write_text(json.dumps({'matches':matches,'jadx_log_tail':pathlib.Path('/tmp/jadx.log').read_text(errors='replace')[-5000:]},ensure_ascii=False,indent=2))
+          print(json.dumps(matches[:60],indent=2))
+          PY
       - name: Publish resource inspection evidence
         uses: actions/upload-artifact@v4
         with:
