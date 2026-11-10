@@ -1,0 +1,87 @@
+name: Kiwi UX07 official Android 137 APK inspection
+on:
+  push:
+    branches:
+      - kiwi-ux07-apk-probe-20261110
+    paths:
+      - .github/workflows/kiwi-ux07-apk-probe.yml
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      KIWI_URL: https://github.com/kiwibrowser/src.next/releases/download/14310011181/com.kiwibrowser.browser.dev-arm64-14310011181-github.apk
+    steps:
+      - name: Retrieve official Kiwi 137 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          curl -fL --retry 4 --retry-all-errors --retry-delay 3 --connect-timeout 30 --max-time 480 -o kiwi.dev.arm64.apk "$KIWI_URL"
+          test "$(stat -c '%s' kiwi.dev.arm64.apk)" = '243967287'
+          file kiwi.dev.arm64.apk
+      - name: Inspect actual Android package resources
+        shell: bash
+        run: |
+          python -m pip -q install brotli
+          python - <<'PY'
+          import zipfile,hashlib,json,struct,pathlib,gzip,brotli
+          apk=pathlib.Path('kiwi.dev.arm64.apk')
+          out=pathlib.Path('output');out.mkdir(exist_ok=True)
+          report={'asset':'com.kiwibrowser.browser.dev-arm64-14310011181-github.apk','bytes':apk.stat().st_size,'sha256':hashlib.sha256(apk.read_bytes()).hexdigest()}
+          with zipfile.ZipFile(apk) as z:
+              infos=z.infolist()
+              report['zip_valid']=z.testzip() is None
+              report['entry_count']=len(infos)
+              report['matching_names']=[{'name':i.filename,'size':i.file_size} for i in infos if any(s in i.filename.lower() for s in ['.pak','devtools','inspector','grit','resources','front_end'])][:300]
+              packs=[]
+              for info in infos:
+                  if not info.filename.lower().endswith('.pak'):continue
+                  record={'name':info.filename,'size':info.file_size}
+                  try:
+                      if info.file_size>150_000_000:raise ValueError('pak above inspection limit')
+                      data=z.read(info)
+                      version=struct.unpack_from('<I',data)[0]
+                      if version==4:
+                          rc,enc=struct.unpack_from('<IB',data,4);aliases=0;header=9
+                      elif version==5:
+                          enc,rc,aliases=struct.unpack_from('<BxxxHH',data,4);header=12
+                      else:raise ValueError('unrecognized GRIT pack version '+str(version))
+                      record.update({'version':version,'encoding':enc,'resources':rc,'aliases':aliases,'pack_sha256':hashlib.sha256(data).hexdigest()})
+                      if rc>65535 or header+(rc+1)*6+aliases*4>len(data):raise ValueError('invalid index bounds')
+                      markers=(b'devtools_app',b'../shell/shell.js',b'inspector_main',b'panels/sources',b'panels/elements',b'DevTools')
+                      matches=[];decompression_attempts=0
+                      for idx in range(rc):
+                          rid,begin=struct.unpack_from('<HI',data,header+6*idx)
+                          _,end=struct.unpack_from('<HI',data,header+6*(idx+1))
+                          if begin>end or end>len(data):raise ValueError('bad resource offset at '+str(idx))
+                          payload=data[begin:end]
+                          found=[m.decode('utf-8') for m in markers if m in payload]
+                          typ='raw'
+                          if not found and len(payload)>=512 and len(payload)<=12_000_000 and decompression_attempts<2400:
+                              decompression_attempts+=1
+                              for how,fn in [('gzip',gzip.decompress),('brotli',brotli.decompress)]:
+                                  try:
+                                      decoded=fn(payload)
+                                      if len(decoded)>40_000_000:continue
+                                      found=[m.decode('utf-8') for m in markers if m in decoded]
+                                      if found:typ=how;break
+                                  except (Exception,MemoryError):pass
+                          if found:matches.append({'resource_id':rid,'offset':begin,'compressed_bytes':len(payload),'markers':found,'encoding':typ,'sha256':hashlib.sha256(payload).hexdigest()})
+                      record['devtools_marked_resources']=matches[:150]
+                      record['matches_count']=len(matches)
+                      record['decompression_attempts']=decompression_attempts
+                  except Exception as e:record['inspection_error']=repr(e)
+                  packs.append(record)
+              report['packs']=packs
+          (out/'kiwi_apk_probe.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
+          print(json.dumps({'bytes':report['bytes'],'zip_valid':report['zip_valid'],'entry_count':report['entry_count'],'name_hits':len(report['matching_names']),'packs':[{'name':p['name'],'resources':p.get('resources'),'matches':p.get('matches_count'),'error':p.get('inspection_error')} for p in report['packs']]},indent=2))
+          PY
+      - name: Publish resource inspection evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-137-official-apk-resource-probe
+          path: output/kiwi_apk_probe.json
+          retention-days: 14
