@@ -15,7 +15,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
-          python -m pip install -q --disable-pip-version-check yt-dlp cryptography
+          python -m pip install -q --disable-pip-version-check yt-dlp cryptography pycryptodomex
           mkdir -p /tmp/media-parity/output /tmp/media-parity/segments /tmp/media-parity/enc
           cd /tmp/media-parity
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=160x90:rate=12 -t 8 -c:v mpeg2video -g 24 -bf 0 -q:v 5 -f segment -segment_time 2 -segment_format mpegts -reset_timestamps 0 segments/seg%02d.ts
@@ -68,7 +68,9 @@ jobs:
           for mode,role in [('broken','trial'),('fixed','trial'),('fixed','paid')]:
             label=mode+'_'+role;d=outputs/label;d.mkdir(exist_ok=True)
             url=f'http://127.0.0.1:{port}/{mode}/master.m3u8'
-            cmd=['yt-dlp','--no-progress','--no-cache-dir','--no-part','--force-overwrites','--add-header',f'Cookie: role={role}','-o',str(d/'%(title)s.%(ext)s'),url]
+            jar=base/f'{role}.cookies.txt'
+            jar.write_text('# Netscape HTTP Cookie File\n127.0.0.1\tFALSE\t/\tFALSE\t0\trole\t'+role+'\n')
+            cmd=['yt-dlp','--no-progress','--no-cache-dir','--no-part','--force-overwrites','--downloader','m3u8:native','--cookies',str(jar),'-o',str(d/'%(title)s.%(ext)s'),url]
             p=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=100)
             files=[x for x in d.iterdir() if x.is_file() and x.stat().st_size>0]
             durations=[]
