@@ -79,9 +79,38 @@ jobs:
           (out/'kiwi_apk_probe.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
           print(json.dumps({'bytes':report['bytes'],'zip_valid':report['zip_valid'],'entry_count':report['entry_count'],'name_hits':len(report['matching_names']),'packs':[{'name':p['name'],'resources':p.get('resources'),'matches':p.get('matches_count'),'error':p.get('inspection_error')} for p in report['packs']]},indent=2))
           PY
+      - name: Extract candidate Chromium resources from official APK
+        shell: bash
+        run: |
+          python - <<'PY'
+          import zipfile,json,hashlib,struct,gzip,pathlib,re
+          apk=pathlib.Path('kiwi.dev.arm64.apk');root=pathlib.Path('output')
+          report=json.loads((root/'kiwi_apk_probe.json').read_text())
+          rec=next(x for x in report['packs'] if x['name']=='assets/resources.pak')
+          matches=rec.get('devtools_marked_resources',[])
+          out=[]
+          with zipfile.ZipFile(apk) as z:
+              data=z.read('assets/resources.pak')
+              rc=struct.unpack_from('<H',data,8)[0] if struct.unpack_from('<I',data,0)[0]==5 else struct.unpack_from('<I',data,4)[0]
+              header=12 if struct.unpack_from('<I',data,0)[0]==5 else 9
+              resources={}
+              for i in range(rc):
+                  rid,start=struct.unpack_from('<HI',data,header+6*i)
+                  _,end=struct.unpack_from('<HI',data,header+6*(i+1))
+                  resources[rid]=data[start:end]
+              for c in matches:
+                  rid=c['resource_id'];raw=resources[rid]
+                  if raw[:2]==b'\x1f\x8b':decoded=gzip.decompress(raw)
+                  else:decoded=raw
+                  filename=f'resource_{rid}_decoded.bin'
+                  (root/filename).write_bytes(decoded)
+                  out.append({'resource_id':rid,'bytes':len(decoded),'decoded_sha256':hashlib.sha256(decoded).hexdigest(),'first_500_repr':repr(decoded[:500]),'possible_strings':[x.decode('utf8','replace')[:200] for x in re.findall(rb'[\x20-\x7E]{12,}',decoded)[:12]],'file':filename})
+          (root/'candidate_details.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2)[:14000])
+          PY
       - name: Publish resource inspection evidence
         uses: actions/upload-artifact@v4
         with:
           name: kiwi-137-official-apk-resource-probe
-          path: output/kiwi_apk_probe.json
+          path: output/
           retention-days: 14
