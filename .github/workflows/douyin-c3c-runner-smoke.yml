@@ -1,0 +1,23 @@
+name: Douyin C3-C Runner Availability Smoke
+on:
+  push:
+    branches: [douyin-c3c-public-emulator-20261111]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runner-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          id
+          test -f /etc/os-release
+          echo C3C_RUNNER_STARTED
+          if test -c /dev/kvm; then echo C3C_KVM_AVAILABLE; else echo C3C_KVM_UNAVAILABLE; fi
