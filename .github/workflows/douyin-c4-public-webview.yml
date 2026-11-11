@@ -1,0 +1,54 @@
+name: Douyin C4 Android11 DeepLink Login Health Verification
+on:
+  push:
+    branches: [douyin-c4-public-webview-20261112]
+    paths:
+      - '.github/workflows/douyin-c4-public-webview.yml'
+      - 'c4_public_probe/C4B_android11_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c4-webview-android11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore checksum-verified public C4 probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4_exp
+          base64 --decode c4_public_probe/C4B_android11_probe.zip.b64 > c4_exp/payload.zip
+          echo 'cdeef9b2c4279324387ae24556f376a4f9a69e51947b4b8210d178a7f32cb733  c4_exp/payload.zip' | sha256sum -c -
+          unzip -q c4_exp/payload.zip -d c4_exp
+          test -s c4_exp/lab/app/build/outputs/apk/debug/app-debug.apk
+          test -s c4_exp/lab/app/src/main/java/com/wfg/c3probe/C4NavigationPolicy.java
+          mkdir -p c4_exp/results
+          echo C4_PAYLOAD_READY
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Run Android11 public WebView modes
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          emulator-boot-timeout: 480
+          script: bash c4_exp/lab/tools/run_c3c3_android11.sh
+      - name: Archive diagnostics regardless of result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4-android11-real-webview-evidence
+          path: c4_exp/results/
+          retention-days: 14
+          if-no-files-found: warn
