@@ -20,7 +20,7 @@ jobs:
           set -euo pipefail
           mkdir -p c3c3_exp
           base64 --decode c3_public_probe/c3c3_android11_probe.zip.b64 > c3c3_exp/payload.zip
-          echo '51934047981af958ca2a7285efe02a4924782d7ce4d53e71a9d6dea3177ceaf7  c3c3_exp/payload.zip' | sha256sum -c -
+          echo '18b87fba15675e782f46e65a404748e07a3b358f635f6d3c8dc68ba1466ff37e  c3c3_exp/payload.zip' | sha256sum -c -
           unzip -q c3c3_exp/payload.zip -d c3c3_exp
           test -s c3c3_exp/lab/app/build/outputs/apk/debug/app-debug.apk
           mkdir -p c3c3_exp/results
@@ -42,35 +42,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           emulator-boot-timeout: 480
-          script: |
-            set -eu
-            mkdir -p c3c3_exp/results
-            adb devices -l | tee c3c3_exp/results/adb_devices.txt
-            adb shell getprop ro.build.version.release | tee c3c3_exp/results/android_release.txt
-            adb install -r c3c3_exp/lab/app/build/outputs/apk/debug/app-debug.apk
-            for mode in android desktop; do
-              echo "C3C3_MODE_START $mode"
-              adb shell am force-stop com.wfg.c3probe || true
-              adb logcat -c || true
-              timeout 22s adb shell am start -n com.wfg.c3probe/.ProbeActivity --es mode "$mode" > "c3c3_exp/results/${mode}_am_start.txt" 2>&1 || echo "C3C3_AM_START_TIMEOUT_OR_FAILURE $mode" | tee -a "c3c3_exp/results/${mode}_am_start.txt"
-              sleep 6
-              adb shell pidof -s com.wfg.c3probe > "c3c3_exp/results/${mode}_pid_after6.txt" || true
-              adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|mFocusedApp|com.wfg.c3probe' | head -40 > "c3c3_exp/results/${mode}_activity_after6.txt" || true
-              adb logcat -d -b crash > "c3c3_exp/results/${mode}_crash_after6.log" || true
-              if [ -s "c3c3_exp/results/${mode}_pid_after6.txt" ]; then
-                echo "C3C3_APP_PROCESS_RUNNING $mode"
-                sleep 62
-              else
-                echo "C3C3_APP_PROCESS_MISSING $mode"
-              fi
-              adb logcat -d -s C3PROBE:I AndroidRuntime:E '*:S' > "c3c3_exp/results/${mode}_webview.log" || true
-              adb logcat -d -b crash > "c3c3_exp/results/${mode}_crash.log" || true
-              adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|com.wfg.c3probe' | head -40 > "c3c3_exp/results/${mode}_activity_final.txt" || true
-              adb shell screencap -p /sdcard/c3c3.png || true
-              adb pull /sdcard/c3c3.png "c3c3_exp/results/${mode}_webview.png" || true
-              grep -E 'C3PROBE.*(ONCREATE|DRIVER|WEBVIEW|START|SNAP|SCROLL|MAINFRAME|STEP|FINAL|INJECT)' "c3c3_exp/results/${mode}_webview.log" | tail -35 || true
-            done
-            echo C3C3_EXPERIMENT_COMPLETED
+          script: bash c3c3_exp/lab/tools/run_c3c3_android11.sh
       - name: Upload startup, crash and network evidence on any outcome
         if: always()
         uses: actions/upload-artifact@v4
