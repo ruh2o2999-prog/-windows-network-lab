@@ -1,0 +1,53 @@
+name: Douyin C3-C3 Android11 WebView Startup Fix
+on:
+  push:
+    branches: [douyin-c3c-public-emulator-20261111]
+    paths:
+      - '.github/workflows/douyin-c3c3-public-webview.yml'
+      - 'c3_public_probe/c3c3_android11_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c3c3-webview-android11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore and verify fixed Android11 WebView probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c3c3_exp
+          base64 --decode c3_public_probe/c3c3_android11_probe.zip.b64 > c3c3_exp/payload.zip
+          echo '18b87fba15675e782f46e65a404748e07a3b358f635f6d3c8dc68ba1466ff37e  c3c3_exp/payload.zip' | sha256sum -c -
+          unzip -q c3c3_exp/payload.zip -d c3c3_exp
+          test -s c3c3_exp/lab/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p c3c3_exp/results
+          echo C3C3_PAYLOAD_READY
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Run actual Android 11 WebView and collect crash diagnostics
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          emulator-boot-timeout: 480
+          script: bash c3c3_exp/lab/tools/run_c3c3_android11.sh
+      - name: Upload startup, crash and network evidence on any outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c3c3-android11-webview-evidence
+          path: c3c3_exp/results/
+          retention-days: 14
+          if-no-files-found: warn

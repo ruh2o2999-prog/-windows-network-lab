@@ -1,0 +1,75 @@
+name: Douyin C3-C - Public Android WebView Network Diagnostics
+on:
+  push:
+    branches: [douyin-c3c-public-emulator-20261111]
+    paths:
+      - '.github/workflows/douyin-c3c-public-webview.yml'
+      - 'c3_public_probe/c3a_public_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-webview-android11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 34
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore checksum-pinned Android probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c3_exp
+          base64 --decode c3_public_probe/c3a_public_probe.zip.b64 > c3_exp/checkpoint.zip
+          echo '3b0d474b379f6937189f44851dc81fae52e156a5401353383598ecbb2ae2b4fb  c3_exp/checkpoint.zip' | sha256sum -c -
+          unzip -q c3_exp/checkpoint.zip -d c3_exp
+          test -s c3_exp/lab/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p c3_exp/results
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Run real Android11 WebView against public creator page
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            set -eu
+            mkdir -p c3_exp/results
+            adb devices -l | tee c3_exp/results/adb_devices.txt
+            adb shell getprop ro.build.version.release | tee c3_exp/results/android_release.txt
+            adb shell settings put global window_animation_scale 0 || true
+            adb shell settings put global transition_animation_scale 0 || true
+            adb install -r c3_exp/lab/app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -W -n com.wfg.c3probe/.ProbeActivity --es mode android | tee c3_exp/results/android_start.txt
+            sleep 78
+            adb logcat -d -s C3PROBE:I '*:S' > c3_exp/results/android_webview.log
+            adb shell screencap -p /sdcard/c3_android.png || true
+            adb pull /sdcard/c3_android.png c3_exp/results/android_webview.png || true
+            adb shell am force-stop com.wfg.c3probe || true
+            adb shell pm clear com.wfg.c3probe || true
+            adb logcat -c
+            adb shell am start -W -n com.wfg.c3probe/.ProbeActivity --es mode desktop | tee c3_exp/results/desktop_start.txt
+            sleep 78
+            adb logcat -d -s C3PROBE:I '*:S' > c3_exp/results/desktop_webview.log
+            adb shell screencap -p /sdcard/c3_desktop.png || true
+            adb pull /sdcard/c3_desktop.png c3_exp/results/desktop_webview.png || true
+            grep -E 'C3PROBE.*(SNAP|SCROLL|MAINFRAME|STEP|FINAL|INJECT)' c3_exp/results/android_webview.log | tail -35 || true
+            grep -E 'C3PROBE.*(SNAP|SCROLL|MAINFRAME|STEP|FINAL|INJECT)' c3_exp/results/desktop_webview.log | tail -35 || true
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c3c-public-android11-network-evidence
+          path: c3_exp/results/
+          retention-days: 14
+          if-no-files-found: warn
