@@ -109,10 +109,10 @@ def fallback_ui_click_history(run,snapshot,pre,output):
     Never tap offscreen 0,0 or an unidentified row. Save a screenshot/XML per move.
     """
     expected=f'已结束 · 请求 {len(pre["requests"])}'
+    dt=datetime.fromisoformat(pre['startedAt'].replace('Z','+00:00'))
+    started_at=f'{dt.year}年{dt.month}月{dt.day}日 {dt.hour:02}:{dt.minute:02}:{dt.second:02}'
     actions=[];xml=snapshot('r109_ui_initial_panel')
-    # The formal panel hides history under advanced tools until the user's
-    # original simple-advanced button was clicked. ADB fallback must do that
-    # before any scroll; offscreen accessibility nodes are not valid targets.
+    # In normal mode, the original history is hidden behind advanced UI.
     if '展开高级工具' in xml:
         expanded=touch(xml,['展开高级工具'],run,snapshot,'r109_ui_advanced_expanded')
         if not expanded:return {'clicked':False,'reason':'Formal advanced toggle was not clickable','actions':actions}
@@ -126,7 +126,7 @@ def fallback_ui_click_history(run,snapshot,pre,output):
             if clicked:
                 xml=clicked['xml'];actions.append({'step':i,'mode':'opened_history','hit':clicked['hit']});break
         # Scroll root page on inner right-hand PAD; avoid nested 380px source list.
-        x=1030 if i%3!=2 else 57
+        x=1030 if i%3!=2 else 795
         rc,_=run(['adb','shell','input','swipe',str(x),'1480',str(x),'405','480'])
         time.sleep(1.4);xml=snapshot('r109_outer_scroll_'+str(i))
         actions.append({'step':i,'mode':'outer','x':x,'history_label_detected':bool(labels)})
@@ -135,7 +135,7 @@ def fallback_ui_click_history(run,snapshot,pre,output):
     time.sleep(4);xml=snapshot('r109_history_loaded')
     for i in range(48):
         # Use parent chain from UI XML; do not accidentally match concatenated list.
-        matched=find_exact_ui_export(xml,expected)
+        matched=find_exact_ui_export(xml,expected,started_at=started_at)
         if matched:
             x,y,label=matched
             run(['adb','shell','input','tap',str(x),str(y)])
@@ -151,30 +151,45 @@ def fallback_ui_click_history(run,snapshot,pre,output):
                         'expected_text_present':expected in xml})
     return {'clicked':False,'reason':'No unique real visible export button','actions':actions}
 
-def find_exact_ui_export(xml,expected):
-    try:r=ET.fromstring(xml[xml.index('<?xml'):])
+def find_exact_ui_export(xml,expected,started_at=None):
+    """Match original WebView flattened task siblings, not a fictitious row subtree.
+
+    R108 authentic Android Uiautomator dumps put all history rows under one
+    android.view.View scrollable=true: title, detail, 查看, 导出, 长会话分卷,
+    清空此任务 repeated per row. Row descendants do NOT contain their buttons.
+    """
+    try:root=ET.fromstring(xml[xml.index('<?xml'):])
     except (ValueError,ET.ParseError):return None
-    parents={c:p for p in r.iter() for c in p}
-    candidates=[]
-    for n in r.iter('node'):
-        desc=n.attrib.get('text','')
-        if expected not in desc or len(desc)>240 or '127.0.0.1' in desc:continue
-        ancestor=n
-        for depth in range(1,7):
-            ancestor=parents.get(ancestor)
-            if ancestor is None:break
-            buttons=[]
-            for c in ancestor.iter('node'):
-                if c.attrib.get('text')!='导出' or c.attrib.get('clickable')!='true':continue
-                m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',c.attrib.get('bounds',''))
-                if not m:continue
-                a,b,d,e=map(int,m.groups());x=(a+d)//2;y=(b+e)//2
-                if a<d and b<e and 70<x<1010 and 120<y<1520:
-                    buttons.append((x,y,desc))
-            if buttons:
-                candidates.extend(buttons);break
-    unique=list({(x,y,t) for x,y,t in candidates})
-    return unique[0] if len(unique)==1 else None
+    parents={child:parent for parent in root.iter() for child in parent}
+    matches={}
+    for detail in root.iter('node'):
+        desc=detail.attrib.get('text','')
+        if expected not in desc or len(desc)>140 or '127.0.0.1' in desc:continue
+        if started_at and started_at not in desc:continue
+        # UIAutomator often nests a duplicate TextView; locate the nearest
+        # scrollable container with direct sequential task children.
+        anc=detail
+        while anc is not None and anc.attrib.get('scrollable')!='true':
+            anc=parents.get(anc)
+        if anc is None:continue
+        children=list(anc)
+        positions=[i for i,c in enumerate(children) if (expected in c.attrib.get('text','')
+                   and len(c.attrib.get('text',''))<140
+                   and (not started_at or started_at in c.attrib.get('text','')))]
+        for i in positions:
+            following=children[i+1:i+7]
+            # Each real row uses four button siblings, starting with 查看.
+            # Require this exact order, not the next export globally.
+            labels=[n.attrib.get('text') for n in following[:4]]
+            if labels != ['查看','导出','长会话分卷','清空此任务']:continue
+            b=following[1]
+            if b.attrib.get('clickable')!='true':continue
+            m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',b.attrib.get('bounds',''))
+            if not m:continue
+            x1,y1,x2,y2=map(int,m.groups());x=(x1+x2)//2;y=(y1+y2)//2
+            if not(x2>x1 and y2>y1 and 80<x<1010 and 100<y<1770):continue
+            matches[(id(anc),i)]=(x,y,desc)
+    return next(iter(matches.values())) if len(matches)==1 else None
 
 def execute(original_zip,run,snapshot,state,out,fixture_url,type_internal_url):
     record={'stage':'R109','scope':'unaltered MV2 V0.4.58 actual Android Kiwi','gates':{},'cdp':{},
