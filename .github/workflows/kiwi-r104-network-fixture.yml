@@ -1,0 +1,58 @@
+name: Kiwi R104 deterministic Android network fixture (public synthetic data)
+on:
+  push:
+    branches: [kiwi-r104-network-fixture]
+    paths:
+      - '.github/workflows/kiwi-r104-network-fixture.yml'
+      - 'kiwi-r104-lab/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kiwi-r104-network-fixture.yml'
+      - 'kiwi-r104-lab/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  controlled-kiwi-network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Python source (without Android)
+        run: |
+          python3 -m py_compile kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/fixture_probe.py kiwi-android-lab/kiwi-smoke.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/test_r104_capture_reconcile.py
+          python3 kiwi-r104-lab/test_r104_capture_reconcile.py
+          python3 kiwi-android-lab/download_kiwi.py
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Official Kiwi + R104 controlled HTTP fixture in actual Android 11 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            python3 kiwi-android-lab/kiwi-smoke.py
+            python3 kiwi-r104-lab/fixture_probe.py
+      - name: Preserve exact R104 verifier source and checksums
+        if: always()
+        run: |
+          mkdir -p out/r104_verifier_source
+          cp kiwi-r104-lab/*.py out/r104_verifier_source/
+          cp .github/workflows/kiwi-r104-network-fixture.yml out/r104_verifier_source/
+          sha256sum out/r104_verifier_source/* > out/r104_verifier_sha256.txt
+      - name: Preserve raw browser screenshots, fixture server receipts and gate status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r104-network-fixture-android-evidence
+          path: out/
+          if-no-files-found: warn
