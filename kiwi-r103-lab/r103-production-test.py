@@ -321,9 +321,45 @@ def main():
             log_gate('A7d_formal_sidebar_opened',False,'Could not operate production sidebar edge')
     else:
         state['gates']['A7d_formal_sidebar_opened']={'status':'NOT_RUN','detail':'sidebar content script not observed in real Android page'}
+    # Android Kiwi asks "Choose where to download" on the first export.
+    # Do not confuse the dialog with completed filesystem persistence.
+    confirm=None
+    if 'Choose where to download' in xml or 'text="Download"' in xml:
+        confirm=tap_target(xml,['Download'],'r103_download_confirm')
+        if confirm:xml=confirm
     rc,dl=run(['adb','shell','ls','-la','/sdcard/Download'])
     (OUT/'r103_download_directory.txt').write_text(dl,encoding='utf-8')
-    state['gates']['A7f_export_zip_content_verified']={'status':'NOT_RUN','detail':'No ZIP download+CRC+HAR/Trace inspection performed on Android; cannot claim a completed business loop'}
+    downloaded=False; zip_ok=False; zip_metadata={}; rawfile=None
+    if confirm:
+        for attempt in range(15):
+            rc,names=run(['adb','shell','ls','-1','/sdcard/Download'])
+            candidates=[x.strip() for x in names.splitlines() if x.strip().lower().endswith('.zip') and
+                        x.strip()!='Kiwi_R103_Production_MV2.zip']
+            if candidates:
+                original=candidates[0]; target='/tmp/r103-export-recovered.zip'
+                prc,pout=run(['adb','pull','/sdcard/Download/'+original,target],timeout=50)
+                if prc==0 and Path(target).is_file():
+                    downloaded=True
+                    try:
+                        with zipfile.ZipFile(target) as z:
+                            bad=z.testzip();members=z.namelist()
+                            has_requests=any(x.lower().endswith('requests.json') for x in members)
+                            has_har=any(x.lower().endswith('.har') for x in members)
+                            has_trace=any(x.lower().endswith('trace.json') for x in members)
+                            zip_ok=bad is None and len(members)>=5 and has_requests and has_har and has_trace
+                            zip_metadata={'filename':original,'bytes':Path(target).stat().st_size,
+                                'sha256':hashlib.sha256(Path(target).read_bytes()).hexdigest(),
+                                'entries':len(members),'crc_error':bad,'has_requests_json':has_requests,
+                                'has_har':has_har,'has_trace_json':has_trace,
+                                'members':members[:150], 'download_pull':pout[:160]}
+                    except Exception as e:
+                        zip_metadata={'error':repr(e)}
+                    break
+            time.sleep(2)
+    (OUT/'r103_export_zip_manifest.json').write_text(json.dumps(zip_metadata,ensure_ascii=False,indent=2))
+    log_gate('A7f_export_zip_content_verified',bool(downloaded and zip_ok),
+             'Kiwi Download confirmation, real Android adb pull, CRC+requests/HAR/Trace='+
+             json.dumps(zip_metadata,ensure_ascii=False)[:900])
     state['gates']['A7g_mse_opfs_video_parity']={'status':'NOT_RUN','detail':'R94-04 and media parity require independent Android samples and evidence; remain open'}
 
 if __name__=='__main__':
