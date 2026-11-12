@@ -1,0 +1,63 @@
+name: P0-04 ClashMeta official upstream baseline build
+on:
+  push:
+    branches: [clashmeta-p004-baseline-ci]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upstream-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
+      - name: Get pinned publicly available Clash Meta source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git clone --filter=blob:none https://github.com/MetaCubeX/ClashMetaForAndroid.git upstream
+          git -C upstream checkout 215e017ae88ac2a1edf24fdb520512c1423c89f4
+          git -C upstream submodule update --init --recursive
+          test "$(git -C upstream rev-parse HEAD)" = 215e017ae88ac2a1edf24fdb520512c1423c89f4
+          git -C upstream rev-parse HEAD > evidence/upstream-sha.txt
+          git -C upstream submodule status --recursive > evidence/submodule-sha.txt
+          java -version > evidence/java.txt 2>&1
+          go version > evidence/go.txt
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > upstream/local.properties
+          chmod +x upstream/gradlew
+      - name: Actual Gradle build of official unchanged source (not security release)
+        shell: bash
+        run: |
+          set -o pipefail
+          (cd upstream && ./gradlew :app:assembleAlphaDebug --stacktrace --no-daemon) 2>&1 | tee evidence/gradle.log
+      - name: Record actual APK hashes
+        if: always()
+        shell: bash
+        run: |
+          find upstream/app/build/outputs/apk -type f -name '*.apk' -exec sha256sum {} \; > evidence/apk-hashes.txt 2>/dev/null || true
+          echo 'Official source only, NOT a protected-app security APK; no real IP leak testing.' > evidence/SAFETY_README.txt
+      - name: Preserve logs and APK artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clashmeta-official-p004-build-evidence
+          path: |
+            evidence/
+            upstream/app/build/outputs/apk/
+          if-no-files-found: warn
+          retention-days: 14
