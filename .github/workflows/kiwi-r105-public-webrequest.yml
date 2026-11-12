@@ -1,0 +1,52 @@
+name: Kiwi R105 actual Kiwi MV2 webRequest capability probe (public canary)
+on:
+  push:
+    branches: [kiwi-r105-real-webrequest-capability]
+    paths:
+      - '.github/workflows/kiwi-r105-public-webrequest.yml'
+      - 'kiwi-android-lab/**'
+      - 'kiwi-r105-lab/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kiwi-r105-public-webrequest.yml'
+      - 'kiwi-android-lab/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-kiwi-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python probe syntax
+        run: python3 -m py_compile kiwi-android-lab/download_kiwi.py kiwi-android-lab/kiwi-smoke.py kiwi-r105-lab/network_fixture_server.py
+      - name: Fetch official Kiwi x64 release and preserve metadata
+        run: |
+          mkdir -p out
+          python3 kiwi-android-lab/download_kiwi.py
+      - name: Enable KVM if available
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm || true
+      - name: Boot real Android 11 x86_64 and test Kiwi APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-android-lab/kiwi-smoke.py
+      - name: Upload real Kiwi AVD evidence even if a step fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r105-public-webrequest-real-android-evidence
+          path: out/
+          if-no-files-found: warn
