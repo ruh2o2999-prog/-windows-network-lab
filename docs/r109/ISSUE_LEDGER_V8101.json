@@ -12,8 +12,8 @@
         "TEST-0001"
       ],
       "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
-      "authority_quote": "开始进行下一步。",
-      "authority_ref": "本会话 R108 后续研发承接及原编号冻结清单（具体原始 G5 消息待核实）"
+      "authority_quote": "上个会话中有销项清单的，按照清单继续。",
+      "authority_ref": "本会话 2026-11-12 用户要求继承原销项清单"
     },
     {
       "id": "REQ-0002",
@@ -59,49 +59,58 @@
         "prime_fixture_direct_original_panel",
         "kiwi_main_menu_original_extension_action"
       ],
-      "next_action": "获取冷重启后的第二份真实历史导出 ZIP，并运行 R108 双 ZIP 逐事件/正文 SHA256 对账",
+      "next_action": "真实 Android Run43224942632 采用 Kiwi 原生三点菜单 Extensions 后复测历史导出；之前同方案仅失败在地址栏搜索，未改正式插件。",
       "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
       "acceptance": "实际 Android Kiwi 冷启动后导出同一 captureSessionId 的原始历史 ZIP，ADB 回读、CRC 通过，事件集合及 36 份正文 SHA256 与重启前实际 ZIP 一致",
       "route_attempts": [
         {
           "id": "ATT-001",
-          "route_id": "prior_omnibox_scroll_family",
+          "route_id": "r108_long_ui_scroll",
           "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
           "result": "failed",
           "evidence_ids": []
         },
         {
           "id": "ATT-002",
-          "route_id": "prior_omnibox_scroll_family",
+          "route_id": "r108_long_ui_scroll",
           "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
           "result": "failed",
           "evidence_ids": []
         },
         {
           "id": "ATT-003",
-          "route_id": "prior_omnibox_scroll_family",
+          "route_id": "r108_long_ui_scroll",
           "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
           "result": "failed",
           "evidence_ids": []
         },
         {
           "id": "ATT-004",
-          "route_id": "prior_omnibox_scroll_family",
+          "route_id": "r109_direct_omnibox",
           "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
           "result": "failed",
           "evidence_ids": []
         },
         {
           "id": "ATT-005",
-          "route_id": "prior_omnibox_scroll_family",
+          "route_id": "r109_direct_omnibox",
           "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
           "result": "failed",
           "evidence_ids": []
+        },
+        {
+          "id": "ATT-006",
+          "route_id": "native_details_options",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "result": "failed",
+          "evidence_ids": [
+            "EVID-0001"
+          ]
         }
       ],
       "route_changes": [
         {
-          "from_route_id": "prior_omnibox_scroll_family",
+          "from_route_id": "r109_direct_omnibox",
           "trigger_attempt_ids": [
             "ATT-001",
             "ATT-002",
@@ -109,7 +118,7 @@
             "ATT-004",
             "ATT-005"
           ],
-          "reason": "重启后直接进入 chrome-extension panel 显示 ERR_FILE_NOT_FOUND，长页面和嵌套历史任务列表滚动、按钮坐标不稳定；第4次失败必须换路线",
+          "reason": "R108 三轮是长页面/列表触控路线；R109 两轮是冷重启直接内部地址导航路线（非同一技术路线）。实际后续改用 Kiwi 原生菜单 Options，并保留旧失效证据。",
           "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
           "search_rounds": [
             {
@@ -170,14 +179,24 @@
       "title": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）｜R109-ENTRY-01 Kiwi 冷启动后的正式扩展选项页入口"
     }
   ],
-  "evidence": [],
+  "evidence": [
+    {
+      "id": "EVID-0001",
+      "path": "/mnt/data/Kiwi_R109_V8101_原生管理入口实机失败证据_Run43223192968.zip",
+      "sha256": "1ed5e8b7761d80bd58852174e1c24429eee43ec8203829e47ecdc289177a0464",
+      "class": "A",
+      "actual": "GitHub Run43223192968: real Android Kiwi installed frozen MV2 and restarted successfully; typed kiwi://extensions became Google Search, R109_04 failed, original history ZIP NOT_RUN"
+    }
+  ],
   "experiments": [
     {
       "id": "EXP-0001",
       "issue_id": "ISSUE-0001",
       "route": "native_details_options",
-      "result": "inconclusive",
-      "evidence_ids": []
+      "result": "failed",
+      "evidence_ids": [
+        "EVID-0001"
+      ]
     }
   ],
   "product_form": {
@@ -201,6 +220,14 @@
       "text": "后续采用 V8.10.1 四套软件研发规范及三轮实质复核、原编号闭环",
       "user_quote": "后面全按照这个执行。",
       "source_ref": "本会话 2026-11-12 用户上传 V8.10.1 ZIP 时的明确指令",
+      "status": "active",
+      "revision": 2
+    },
+    {
+      "id": "CON-0003",
+      "text": "继续沿用已冻结的原编号销项清单，不改变原始验收标准",
+      "user_quote": "上个会话中有销项清单的，按照清单继续。",
+      "source_ref": "本会话 2026-11-12 用户要求继承原销项清单",
       "status": "active",
       "revision": 2
     }
