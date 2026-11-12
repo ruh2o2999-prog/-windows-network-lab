@@ -1,0 +1,1 @@
+R109 second formal Android run with corrected original advanced toggle before ADB-only history navigation. Frozen V0.4.58 hash 32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479. CDP discovery optional, same business acceptance unchanged; all previous run evidence retained.
