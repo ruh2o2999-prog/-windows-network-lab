@@ -4,7 +4,7 @@ import ctypes,json,os,subprocess,sys,time
 from pathlib import Path
 from pywinauto import Desktop
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"pub032v21129"))
-from native_installer_uia import native_snapshot, acknowledge_owned_failure_modal
+from native_installer_uia import native_snapshot, acknowledge_owned_failure_modal_via_uia_handle
 out=Path("out/pub010_v812_modal_snapshot_smoke.json")
 p=None
 result={"scope":"Controlled Win32 MessageBox only; not product installer","passed":False}
@@ -31,14 +31,21 @@ try:
     if other["failure_dialog_native"]:
         raise RuntimeError("Cross-process window was mistaken for an owned modal")
     result["foreign_pid_rejected"]=True
-    # Exercise the exact known-error modal fallback used by the product driver.
-    # Never click a foreign PID or a different dialog caption.
-    if not acknowledge_owned_failure_modal(u,p.pid):
-        raise RuntimeError("Native PID/title/IDOK Button validation or BM_CLICK failed")
-    if p.wait(timeout=7)!=0:raise RuntimeError("Native IDOK click did not close the controlled dialog")
-    result["native_pid_scoped_idok_bm_click_pass"]=True
+    # Explicitly change route after the native IDOK/BM_CLICK attempt failed:
+    # bind the proven PID-owned native HWND into the UIA tree and INVOKE exact OK.
+    clicked=False
+    last_diag={}
+    until=time.monotonic()+8
+    while time.monotonic()<until:
+        clicked,last_diag=acknowledge_owned_failure_modal_via_uia_handle(u,p.pid)
+        if clicked:break
+        time.sleep(0.25)
+    result["handle_bound_uia_diagnostics"]=last_diag
+    if not clicked:raise RuntimeError("Native PID to UIA HWND binding did not expose/invoke unique OK")
+    if p.wait(timeout=7)!=0:raise RuntimeError("Native HWND->UIA invoked OK but process did not close")
+    result["native_pid_scoped_handle_to_uia_ok_pass"]=True
     result["passed"]=True
-    print("PUB010_V812_WIN32_MODAL_IDOK_BMCLICK_PASS")
+    print("PUB010_V812_WIN32_HANDED_HWND_TO_UIA_OK_PASS")
 except Exception as e:
     result["error"]=type(e).__name__+": "+str(e)[:180]
     raise
