@@ -1,0 +1,1 @@
+R108 second run after Python compilation fixed, use exact frozen MV2 32219f...c479; original first failed run archived. Android restart history, not user data reset. No automatic overall G5.
