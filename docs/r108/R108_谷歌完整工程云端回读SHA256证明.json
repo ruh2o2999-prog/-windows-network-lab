@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "scope": "Only cloud full archive integrity, not R108 business acceptance",
+  "part_bytes": [
+    57671680,
+    57671680,
+    57671680,
+    9285990
+  ],
+  "part_sha256": [
+    "0b174422879c46dd212b8f29973c9ef523b74f1a8cc506a3205bb4f2e53ba0fc",
+    "cf7e158dcce91fb59f912440772b4aa1c6a5eff060c21c27588ee0d6a3b93b02",
+    "b9ed119a19edf5e14babce9304ba43b53abfc9ec02d59b1a7ac8cb39468c4b26",
+    "4bd7877e38d4f122dfbab9eeab6f62e8a3c4778427f8201ee99272af8086a23f"
+  ],
+  "combined_bytes": 182301030,
+  "combined_sha256": "a0cb1aec29ed8b4e767280f9d9233280e05e210393022617a45472d2d7732122",
+  "verified_by_actual_drive_materialize": true,
+  "local_restore_crc": "PASS",
+  "business_R108": "PARTIAL"
+}
