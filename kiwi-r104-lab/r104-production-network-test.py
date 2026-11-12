@@ -452,7 +452,7 @@ def main():
             sys.path.insert(0,str(Path('kiwi-r108-lab').absolute()))
             sys.path.insert(0,str(Path('kiwi-r109-lab').absolute()))
             from r109_history_recovery import execute as r109_execute
-            r109_execute(Path('/tmp/r103-export-recovered.zip'),run,snapshot,state,OUT,fixture_url,type_internal_url)
+            r109_execute(Path('/tmp/r103-export-recovered.zip'),run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)
         except Exception as e:
             log_gate('R108_99_automation_exception',False,repr(e))
     else:
