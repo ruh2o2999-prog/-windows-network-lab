@@ -445,6 +445,19 @@ def main():
     else:
         state['gates']['R104_NET_01_export_and_observation_audit']={
             'status':'NOT_RUN','detail':'Actual formal ZIP download or observation window was not available; see R103 and R104 stage evidence'}
+    # R108: After successful real R107 capture, actually kill/relaunch Kiwi
+    # and inspect the original task history from the frozen formal plugin UI.
+    if downloaded and zip_ok and r104_start_ns and r104_end_ns:
+        try:
+            sys.path.insert(0,str(Path('kiwi-r108-lab').absolute()))
+            from r108_restart_history import execute as r108_execute
+            r108_execute(Path('/tmp/r103-export-recovered.zip'),run,snapshot,state,OUT,fixture_url)
+        except Exception as e:
+            log_gate('R108_99_automation_exception',False,repr(e))
+    else:
+        state['gates']['R108_00_not_executed']={
+            'status':'NOT_RUN',
+            'detail':'Formal R107 ZIP missing: do not run recovery probe on fabricated data'}
     if r104_fixture_proc:
         r104_fixture_proc.terminate()
         try:r104_fixture_proc.wait(timeout=8)
