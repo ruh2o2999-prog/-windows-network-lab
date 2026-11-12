@@ -168,14 +168,14 @@ def canary():
     path=OUT/'Kiwi_R101_Canary_MV2.zip'
     manifest={'manifest_version':2,'name':'Kiwi R101 Probe','version':'0.0.1',
               'description':'Public R105 webRequest API capability probe; no private plugin code',
-              'permissions':['storage','webRequest','http://127.0.0.1:18764/*','https://example.com/*'],
+              'permissions':['storage','webRequest','http://127.0.0.1/*','https://example.com/*'],
               'background':{'scripts':['background.js'],'persistent':True},
               'content_scripts':[{'matches':['https://example.com/*','http://127.0.0.1/*'],
               'js':['probe.js'],'run_at':'document_idle'}]}
     with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False))
         z.writestr('background.js',"var r105={count:0,routes:{},statuses:{}};\nvar r105Ready=!!(chrome.webRequest && chrome.webRequest.onCompleted);\nif(r105Ready) chrome.webRequest.onCompleted.addListener(function(d){\n  if(!d.url || d.url.indexOf('http://127.0.0.1:18764/r104/api/')!==0)return;\n  r105.count++;\n  var path=d.url.split('?')[0].replace('http://127.0.0.1:18764','');\n  r105.routes[path]=(r105.routes[path]||0)+1;\n  r105.statuses[String(d.statusCode)]=(r105.statuses[String(d.statusCode)]||0)+1;\n},{urls:['http://127.0.0.1:18764/r104/api/*']});\nchrome.runtime.onMessage.addListener(function(m,sender,sendResponse){\n  if(m && m.kind==='r105_snapshot'){\n    sendResponse({count:r105.count,routes:r105.routes,statuses:r105.statuses,api:r105Ready});\n  }\n});")
-        z.writestr('probe.js',"(function(){\n  function mount(){\n    if(document.getElementById('kiwi-r105-canary-probe'))return;\n    var badge=document.createElement('div');\n    badge.id='kiwi-r105-canary-probe';\n    badge.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:#fceaa4;color:#000;padding:8px;font-size:16px';\n    badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_TRACKED_0';\n    document.documentElement.appendChild(badge);\n    function refresh(){\n      try {chrome.runtime.sendMessage({kind:'r105_snapshot'},function(data){\n        if(chrome.runtime.lastError){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_BG_ERROR';return;}\n        if(data&&data.api){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_TRACKED_'+data.count;}\n        else{badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_UNAVAILABLE';}\n      });}catch(e){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_BG_EXCEPTION';}\n    }\n    refresh();setInterval(refresh,1200);\n  }\n  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();\n})();")
+        z.writestr('probe.js',"(function(){\n  function mount(){\n    if(document.getElementById('kiwi-r105-canary-probe'))return;\n    var badge=document.createElement('div');\n    badge.id='kiwi-r105-canary-probe';\n    badge.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:#fceaa4;color:#000;padding:8px;font-size:16px';\n    badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_TRACKED_0';\n    document.documentElement.appendChild(badge);\n    function refresh(){\n      try {chrome.runtime.sendMessage({kind:'r105_snapshot'},function(data){\n        if(chrome.runtime.lastError){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_BG_ERROR';return;}\n        if(data&&data.api){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_TRACKED_'+data.count+' R105_WEBREQUEST_404_'+(data.statuses['404']||0);}\n        else{badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_UNAVAILABLE';}\n      });}catch(e){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_BG_EXCEPTION';}\n    }\n    refresh();setInterval(refresh,1200);\n  }\n  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();\n})();")
     state['canary_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
     return path
 
@@ -316,15 +316,17 @@ def main():
         counts=Counter(x['path'] for x in api_events)
         log_gate('R105_PROBE_KIWI_REAL_HTTP',rr==0 and len(api_events)>=8,
                  'Real host observed HTTP events: '+str(dict(counts)))
-        m=re.search(r'R105_WEBREQUEST_TRACKED_(\\d+)',xml)
+        m=re.search(r'R105_WEBREQUEST_TRACKED_(\d+)',xml)
         seen=int(m.group(1)) if m else 0
-        state['r105_public_mv2']={'host_events':len(api_events),'extension_ui_count':seen,
+        n404=re.search(r'R105_WEBREQUEST_404_(\d+)',xml)
+        observed_404=int(n404.group(1)) if n404 else 0
+        state['r105_public_mv2']={'host_events':len(api_events),'extension_ui_count':seen,'extension_404_events':observed_404,
                                  'routes':dict(counts),'purpose':'capability probe only'}
         log_gate('R105_PROBE_MV2_WEBREQUEST_EVENTS',seen>=8,
                  'Actual Kiwi DOM reports MV2 webRequest.onCompleted count='+str(seen))
-        log_gate('R105_PROBE_404_EVENT_SEEN',seen>=8 and
+        log_gate('R105_PROBE_404_EVENT_SEEN',observed_404>=2 and
                  counts.get('/r104/api/expected-404',0)>=2,
-                 'Server had >=2 real 404 requests and extension counted network events; exact status capture requires a separate gate')
+                 'Actual Kiwi MV2 webRequest API reported >=2 HTTP 404 events and host server also confirmed 404')
     finally:
         if server:
             server.terminate()
