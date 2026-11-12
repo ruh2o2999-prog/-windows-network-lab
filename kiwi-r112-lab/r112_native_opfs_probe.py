@@ -19,23 +19,26 @@ def sha(b): return hashlib.sha256(b).hexdigest()
 def dump(p,o): pathlib.Path(p).write_text(json.dumps(o,ensure_ascii=False,indent=2),encoding='utf-8')
 
 def synth_media(out):
-    path=out/'r112_controlled_fmp4_av.mp4'
-    args=['ffmpeg','-nostdin','-y','-loglevel','error',
-      '-f','lavfi','-i','testsrc2=size=160x90:rate=15',
-      '-f','lavfi','-i','sine=frequency=440:sample_rate=32000',
-      '-t','2','-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p',
-      '-c:a','aac','-b:a','64k',
-      '-movflags','frag_keyframe+empty_moov+default_base_moof',str(path)]
-    p=subprocess.run(args,capture_output=True,text=True,timeout=45)
-    if p.returncode: raise RuntimeError('R112 controlled ffmpeg failed '+p.stderr[-700:])
-    probe=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_name,codec_type',
-      '-of','json',str(path)],capture_output=True,text=True,timeout=20)
-    if probe.returncode:raise RuntimeError('R112 media ffprobe failed '+probe.stderr[-450:])
-    streams=json.loads(probe.stdout)['streams']
-    if not {'audio','video'}.issubset({r.get('codec_type') for r in streams}):
-        raise RuntimeError('R112 fixture does not contain both real audio and video streams')
-    data=path.read_bytes()
-    return {'path':str(path),'bytes':len(data),'sha256':sha(data),'streams':streams,'base64':base64.b64encode(data).decode('ascii')}
+    # R112 HF1: reuse historical, genuinely codec-verified R93 generated fixture.
+    # Ubuntu Actions hosted runner has no ffmpeg binary (Run 43288062501).
+    # This is SYNTHETIC test media, not any user/site material.
+    asset=pathlib.Path('kiwi-r112-lab/fixtures/r93_synthetic_h264_aac_fmp4.b64')
+    expected='1062cc5384f83cb737baa37b60ea9d852096aa900c0e06a5cb29df8d0e58c031'
+    data=base64.b64decode(asset.read_text(encoding='ascii'),validate=True)
+    if len(data)!=116985 or sha(data)!=expected or data[4:8]!=b'ftyp' or b'moov' not in data[:4096]:
+        raise RuntimeError('R93 historical synthetic H264/AAC fMP4 bytes do NOT match independently fixed provenance')
+    path=out/'r112_controlled_fmp4_av.mp4';path.write_bytes(data)
+    streams=[{'codec_name':'h264','codec_type':'video'},{'codec_name':'aac','codec_type':'audio'}]
+    probe_method='R93 archived real ffprobe + SHA-256, runner bytes independently pinned'
+    if __import__('shutil').which('ffprobe'):
+        p=subprocess.run(['ffprobe','-v','error','-show_entries','stream=codec_name,codec_type',
+            '-of','json',str(path)],capture_output=True,text=True,timeout=25)
+        if p.returncode:raise RuntimeError('Optional runner ffprobe rejected pinned source')
+        streams=json.loads(p.stdout)['streams'];probe_method='actual ffprobe on this runner + pinned SHA'
+        if not {'audio','video'}.issubset({r.get('codec_type') for r in streams}):
+            raise RuntimeError('Source has lost audio or video stream')
+    return {'path':str(path),'bytes':len(data),'sha256':expected,'streams':streams,
+            'codec_verification':probe_method,'base64':base64.b64encode(data).decode('ascii')}
 
 def begin_js(job,encoded):
     return '''(async()=>{
