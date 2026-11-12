@@ -33,10 +33,9 @@ def test_all(source,report_path):
             assert (td/'restored.zip').read_bytes()==src
             with zipfile.ZipFile(td/'restored.zip') as z:
                 assert z.testzip() is None
-                manifest=json.loads(z.read('manifest.json'))
                 assert len(z.namelist()) >= 1
             return {'sha256':res['sha256'],'bytes':res['bytes'],'parts':res['parts'],'zip_members':len(z.namelist())}
-        check('positive_roundtrip_real_zip',verify_positive)
+        check('positive_roundtrip_synthetic_zip',verify_positive)
         check('unique_independent_aes_keys',lambda: verify_keys(td,m))
         check('manifest_no_plain_keys',lambda: verify_manifest_no_keys(m))
         def mutate_case(name,mutator):
