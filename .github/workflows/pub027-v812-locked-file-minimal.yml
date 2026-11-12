@@ -1,0 +1,43 @@
+name: PUB-027 V8.12 Native Locked File Minimal Proof
+on:
+  push:
+    branches: [publisher-v21129-v812-lock-probe-20261113]
+    paths:
+      - '.github/workflows/pub027-v812-locked-file-minimal.yml'
+      - 'ci/pub010_v812/win32_locked_backup_minimal.ps1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  locked-file-minimal-proof:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse real PowerShell test source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tok=$null;$errs=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci/pub010_v812/win32_locked_backup_minimal.ps1').Path,[ref]$tok,[ref]$errs) | Out-Null
+          if($errs.Count){throw "Parser errors: $($errs | Out-String)"}
+          Write-Host 'PUB027_V812_TEST_SCRIPT_PARSE_PASS'
+      - name: Actually test locked workbook Win32 rename and reverse restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub010_v812/win32_locked_backup_minimal.ps1
+          if($LASTEXITCODE){throw "Native minimal rollback proof failed $LASTEXITCODE"}
+      - name: Save isolated experiment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub027-v812-windows-movefile-lock-minimal
+          path: out/pub027_v812_native_lock_minimal.json
+          if-no-files-found: warn
+      - name: Evidence boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'ACTUAL_PRODUCT_INSTALLER_NOT_EXECUTED_IN_THIS_MINIMAL_TEST=true'
+          Write-Host 'PUB010_AND_PUB027_REMAIN_OPEN=true'
