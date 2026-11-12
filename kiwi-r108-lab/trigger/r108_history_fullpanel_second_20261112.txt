@@ -1,0 +1,1 @@
+R108 second real official Kiwi Android x86_64 formal MV2 V0.4.58; hash 32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479. Route now uses original full panel internal URL and history anchor after real process force-stop. Preserve first failed Run43194496376. Do not claim original issue closure until real recovery ZIP compared.
