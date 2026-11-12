@@ -14,6 +14,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+      - name: Install Android NDK cross compiler (preinstalled SDK CLI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
+          test -x "$SDKM"
+          "$SDKM" 'ndk;29.0.14206865' 'platforms;android-35'
       - name: Fetch exact published CMFA and mihomo
         shell: bash
         run: |
@@ -30,7 +39,14 @@ jobs:
         run: |
           set -euo pipefail
           cp p006-public-api-contract_test.go upstream/core/src/main/golang/native/tun/p006_public_api_contract_test.go
-          (cd upstream/core/src/main/golang && go test -run '^TestP006Contract$' -count=1 -vet=off ./native/tun ) 2>&1 | tee evidence/go-api-compile.txt
+          export GOOS=android GOARCH=arm64 CGO_ENABLED=1
+          export CC="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang"
+          test -x "$CC"
+          printf 'GOOS=%s GOARCH=%s CGO_ENABLED=%s CC=%s\n' "$GOOS" "$GOARCH" "$CGO_ENABLED" "$CC" > evidence/target-env.txt
+          (cd upstream/core/src/main/golang && go test -c -vet=off -o "$GITHUB_WORKSPACE/p006-android-arm64.test" ./native/tun) 2>&1 | tee evidence/go-api-compile.txt
+          file p006-android-arm64.test > evidence/compiled-binary-type.txt
+          sha256sum p006-android-arm64.test > evidence/compiled-binary-sha256.txt
+          grep -q 'ELF 64-bit' evidence/compiled-binary-type.txt
       - name: Capture build identity
         if: always()
         shell: bash
