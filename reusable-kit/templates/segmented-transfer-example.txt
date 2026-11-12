@@ -1,0 +1,8 @@
+# For private CI transfer ONLY; Google Drive project backup need not be encrypted.
+python -m pip install -r requirements.txt
+python tools/segmented_transfer.py keygen --out /tmp/receiver
+python tools/segmented_transfer.py pack --source /PRIVATE/app.zip --public-key /tmp/receiver/receiver-public.pem --out /tmp/encrypted --session project_run_000001 --segment-size 131072
+# expected SHA must be obtained independently from a trusted baseline, NOT from manifest.json
+python tools/segmented_transfer.py restore --bundle /tmp/encrypted --private-key /tmp/receiver/receiver-private.pem --output /tmp/verified-app.zip --expected-sha256 REPLACE_WITH_TRUSTED_64_HEX --expected-session project_run_000001
+# On public CI the receiver generates its own ephemeral keypair and publishes PUBLIC KEY ONLY.
+# Do not upload PRIVATE KEY, decrypted ZIP, or secrets to GitHub. Git overwrites do not erase history.
