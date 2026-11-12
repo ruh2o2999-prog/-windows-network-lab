@@ -1,0 +1,57 @@
+name: Douyin C4C3E One-Shot Real Cursor and Route Evidence
+on:
+  push:
+    branches: [douyin-c4c3e-one-shot-20261112]
+    paths:
+      - '.github/workflows/douyin-c4c3e-one-shot.yml'
+      - 'c4c3e_public_probe/C4C3E_public_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c4c3e-one-shot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify checksum and refuse duplicate hypothesis BEFORE emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4c3e_exp
+          base64 -d c4c3e_public_probe/C4C3E_public_probe.zip.b64 > c4c3e_exp/payload.zip
+          echo '9617e05ecf8cb926cb72df50dcb4859145b30bdf12b64401399a112d48b1cd14  c4c3e_exp/payload.zip' | sha256sum -c -
+          unzip -q c4c3e_exp/payload.zip -d c4c3e_exp
+          test -s c4c3e_exp/C4C3E_Android11_Research.apk
+          bash -n c4c3e_exp/run_c4c3e_android11.sh
+          node --check c4c3e_exp/cdp_structural_observer.mjs
+          python3 c4c3e_exp/route_gate.py preflight c4c3e_control/state.json
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Run ONCE on Android 11; classify server pages, not CI success
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash c4c3e_exp/run_c4c3e_android11.sh
+      - name: Preserve genuine evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4c3e-one-shot-route-and-cursor
+          path: c4c3e_results/
+          retention-days: 14
+          if-no-files-found: warn
