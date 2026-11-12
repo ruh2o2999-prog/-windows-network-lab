@@ -23,8 +23,10 @@ jobs:
         run: |
           mkdir -p evidence
           echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          command -v sdkmanager
-          sdkmanager --version
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
+          test -x "$SDKM"
+          echo "$(dirname "$SDKM")" >> "$GITHUB_PATH"
+          "$SDKM" --version
       - name: Install SDK and NDK
         shell: bash
         run: |
