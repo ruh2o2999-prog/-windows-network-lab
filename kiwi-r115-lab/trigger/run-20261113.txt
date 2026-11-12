@@ -1,0 +1,1 @@
+R115 G4: real Android Kiwi, real localhost MSE appendBuffer, dual-backend panel, encrypted candidate; preserve R111/R112/R114 regression.
