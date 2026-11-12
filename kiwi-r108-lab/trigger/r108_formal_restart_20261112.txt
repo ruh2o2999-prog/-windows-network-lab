@@ -1,0 +1,1 @@
+R108 frozen original business scope: MV2 V0.4.58 SHA256 32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479. Android Kiwi AVD true am force-stop + new process + original completed task history. Do not claim R07/R17/R26/T17/T37 fully closed on partial UI evidence. Preserve all historical failures; no source on public branch.
