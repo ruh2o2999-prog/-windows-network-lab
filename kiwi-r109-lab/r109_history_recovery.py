@@ -214,10 +214,21 @@ def execute(original_zip,run,snapshot,state,out,fixture_url,type_internal_url):
         m=re.search(r'ID:\s*([a-p]{32})',manager)
         if not m:raise ValueError('Formal ID not confirmed in real manager')
         extension_id=m.group(1)
-        url=f'chrome-extension://{extension_id}/panel.html'
-        xml=type_internal_url(url,'r109_formal_original_panel')
-        gate('R109_04_original_extension_panel_opens',('网站数据观察与导出' in xml),
-             {'extension_id':extension_id,'bytes_ui_xml':len(xml)})
+        # R109 / V8.10.1 route switch after repeated direct URL failures:
+        # use the ORIGINAL Kiwi Extensions > Details > Extension options.
+        from r109_panel_entry_v8101 import open_original_panel,page_ok
+        xml,entry=open_original_panel(run,snapshot,type_internal_url,extension_id,fixture_url)
+        record['original_panel_entry']=entry
+        panel_valid=page_ok(xml)
+        gate('R109_04_original_extension_panel_opens',panel_valid,
+             {'extension_id':extension_id,'bytes_ui_xml':len(xml),
+              'entry_route':entry.get('selected_route'),
+              'manager_id_matched':entry.get('matched_installed_id',False)})
+        if not panel_valid:
+            record['unexecuted']=['R109_05_cdp_discovery','R109_06_original_history_export_clicked',
+                'R109_07_historic_zip_real_adb_pull','R108_11_same_original_capture_session',
+                'R108_12_no_request_loss_or_duplication','R108_13_cdp_body_byte_identity']
+            raise RuntimeError('Real original Kiwi options panel navigation failed; see manager/option screenshots')
         # Try a trusted direct Android CDP session, but only if the unchanged
         # browser actually exposes its own web debugging socket.
         cdp=probe_cdp(run,out)
