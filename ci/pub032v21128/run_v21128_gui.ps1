@@ -147,9 +147,27 @@ try {
   [void][PUB032V5Win]::SendMessage($preset,0x014E,[IntPtr]1,[IntPtr]::Zero)
   [void][PUB032V5Win]::PostMessage($main,0x0111,[IntPtr]65655,$preset) # CBN_SELCHANGE(1) + ID 119
   $trace.Add(@{kind='publisher_fields_entered';input_source=$source;output_path=$outExe;preset='@WF:USERPROGRAMS'})
-  if(![PUB032V5Win]::PostMessage($main,0x0111,[IntPtr]112,[IntPtr]::Zero)){throw 'Failed to post real ID_BUILD command'}
+  # Second run: verify the actual native edit-control bytes BEFORE submitting a UI button click.
+  # The first run's inputs appeared populated externally but the publisher reported incomplete info.
+  Start-Sleep -Milliseconds 1200
+  $fieldIds=@(103,105,121,106,107)
+  $readback=@{}
+  foreach($id in $fieldIds) {
+    $control=[PUB032V5Win]::GetDlgItem($main,[int]$id)
+    if($control -eq [IntPtr]::Zero){throw "Native field missing before click: $id"}
+    $readback["$id"]=Read-WindowText $control
+  }
+  $trace.Add(@{kind='native_edit_readback_before_click';fields=$readback})
+  if($readback['103'] -ne $source -or $readback['105'] -ne 'PUB032_P050_Test' -or $readback['121'] -ne 'PUB032_P050_Test' -or $readback['106'] -ne '0.1.0' -or $readback['107'] -ne $outExe) {
+    throw ('Readback mismatch before native BM_CLICK: '+($readback|ConvertTo-Json -Compress))
+  }
   $buildButton=[PUB032V5Win]::GetDlgItem($main,112)
-  $trace.Add(@{kind='posted_build_button';enabled=[PUB032V5Win]::IsWindowEnabled($buildButton);status=(Read-WindowText ([PUB032V5Win]::GetDlgItem($main,113)))})
+  if(![PUB032V5Win]::IsWindowEnabled($buildButton)){throw 'Native Build button disabled BEFORE click'}
+  # Actual BM_CLICK on the real Windows button, not a synthetic WM_COMMAND injection.
+  if(![PUB032V5Win]::PostMessage($buildButton,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)){
+    throw 'PostMessage(BM_CLICK) to native Build button failed'
+  }
+  $trace.Add(@{kind='posted_native_button_BM_CLICK';enabled=[PUB032V5Win]::IsWindowEnabled($buildButton);status=(Read-WindowText ([PUB032V5Win]::GetDlgItem($main,113)))})
   # Diagnose every visible modal, not just two hard-coded titles.
   # A synthetic workbook may legitimately fail strict validation; never bypass that gate to make CI green.
   $seenDialog=[System.Collections.Generic.HashSet[string]]::new()
