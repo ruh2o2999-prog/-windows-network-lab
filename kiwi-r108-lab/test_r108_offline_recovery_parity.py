@@ -43,4 +43,4 @@ with tempfile.TemporaryDirectory() as t:
   assert passed==expected,(key,result)
   checks[key]={'expected':expected,'observed':passed,'failed_gates':[g for g,x in result['gates'].items() if x['status']=='FAIL']}
  print('R108_OFFLINE_COMPARATOR_REGRESSION',json.dumps(checks,ensure_ascii=False))
- Path('/mnt/data/r108_dev/r108_offline_regression.json').write_text(json.dumps(checks,ensure_ascii=False,indent=2))
+ Path('out/r108_offline_regression.json').write_text(json.dumps(checks,ensure_ascii=False,indent=2))
