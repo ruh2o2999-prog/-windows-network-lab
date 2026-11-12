@@ -1,0 +1,31 @@
+name: Kiwi R104 strict export event parity preflight
+on:
+  push:
+    branches: [kiwi-r104-formal-network-audit]
+    paths:
+      - '.github/workflows/kiwi-r104-strict-network-tests.yml'
+      - 'kiwi-r104-lab/r104_network_strict_parity.py'
+      - 'kiwi-r104-lab/test_r104_network_strict_parity.py'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kiwi-r104-strict-network-tests.yml'
+      - 'kiwi-r104-lab/r104_network_strict_parity.py'
+      - 'kiwi-r104-lab/test_r104_network_strict_parity.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-reconciliation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify syntax and strict positive/negative business evidence
+        run: |
+          set -euo pipefail
+          python3 -m py_compile kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py
+          PYTHONPATH=kiwi-r104-lab python3 kiwi-r104-lab/test_r104_network_strict_parity.py
+      - name: State the verification boundary
+        run: |
+          echo 'R104: synthetic strict-reconciler tests only. Formal Kiwi V0.4.58 export is NOT validated by this workflow.'
