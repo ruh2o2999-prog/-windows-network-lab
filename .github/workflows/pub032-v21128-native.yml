@@ -1,7 +1,7 @@
-name: PUB-032 V2.11.2.8 real publisher native Windows P0-50
+name: PUB-032 V2.11.2.8 real GUI 34 preserved AND 28 QA excluded
 on:
   push:
-    branches: [publisher-v21128-pub032-native-20261112]
+    branches: [publisher-v21128-pub032-28file-verification-20261112]
     paths:
       - '.github/workflows/pub032-v21128-native.yml'
       - 'ci/pub032v21128/**'
@@ -46,7 +46,7 @@ jobs:
           git add $dest
           git commit -m "ci: V2.11.2.8 public one-time cert run $env:GITHUB_RUN_ID"
           if($LASTEXITCODE){throw 'Public certificate commit failure'}
-          git push origin HEAD:publisher-v21128-pub032-native-20261112
+          git push origin HEAD:publisher-v21128-pub032-28file-verification-20261112
           if($LASTEXITCODE){throw 'Public certificate push failure'}
           Write-Host "PUB032_V21128_CERT_READY=$dest"
       - name: Receive only CMS-encrypted private binary and real P0-50 fixture
@@ -54,7 +54,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $prefix="exchange/pub032-v21128-run-$env:GITHUB_RUN_ID"
-          $branch='publisher-v21128-pub032-native-20261112'
+          $branch='publisher-v21128-pub032-28file-verification-20261112'
           $cipher=Join-Path $env:RUNNER_TEMP 'pub032_v21128_cipher.p7m'
           $found=$false
           for($attempt=0;$attempt -lt 180;$attempt++){
@@ -101,6 +101,20 @@ jobs:
           python ci/pub032v21128/verify_v21128.py 'out/PUB032_V21128_34_REAL_P050_INSTALL.exe' (Join-Path $r 'source_p050_34.zip') (Join-Path $r 'expected.json') 'out/pub032_v21128_payload_audit.json'
           if($LASTEXITCODE){throw 'Actual publisher generated exe did not match P0-50 source 34/34'}
           Write-Host 'PUB032_V21128_REAL_WINDOWS_PUBLISHER_EXE_PAYLOAD_34_34_SHA256_MATCH'
+      - name: Run real V2.11.2.8 Win32 GUI again with explicit EXCLUDE 6 QA CMD option
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub032v21128/run_v21128_gui.ps1 -ExcludeQa
+          if($LASTEXITCODE){throw "Actual V2.11.2.8 publisher GUI exclude six QA returned $LASTEXITCODE"}
+      - name: Independently verify generated 28-file EXE, runtime CMD and 4 XLSX preserved
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Join-Path $env:RUNNER_TEMP 'pub032v21128'
+          python ci/pub032v21128/verify_v21128.py 'out/PUB032_V21128_28_EXCLUDE_QA_INSTALL.exe' (Join-Path $r 'source_p050_34.zip') (Join-Path $r 'expected.json') 'out/pub032_v21128_28_payload_audit.json' --exclude-six-qa-cmd
+          if($LASTEXITCODE){throw '28-file payload does not match source minus six nominated QA CMD'}
+          Write-Host 'PUB032_V21128_REAL_WINDOWS_PUBLISHER_EXE_PAYLOAD_28_28_SHA256_MATCH'
       - name: Privacy cleanup on runner
         if: always()
         shell: pwsh
@@ -109,17 +123,21 @@ jobs:
             $p=Join-Path $env:RUNNER_TEMP $n
             if(Test-Path $p){Remove-Item $p -Force -Recurse -ErrorAction SilentlyContinue}
           }
-          $exe='out/PUB032_V21128_34_REAL_P050_INSTALL.exe'
-          if(Test-Path $exe){Remove-Item $exe -Force -ErrorAction SilentlyContinue}
+          foreach($exe in @('out/PUB032_V21128_34_REAL_P050_INSTALL.exe','out/PUB032_V21128_28_EXCLUDE_QA_INSTALL.exe')){
+            if(Test-Path $exe){Remove-Item $exe -Force -ErrorAction SilentlyContinue}
+          }
           Get-ChildItem out -File -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "EVIDENCE_FILE=$($_.Name)" }
       - name: Upload sanitized reports only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pub032-v21128-real-windows-gui-sanitized-evidence
+          name: pub032-v21128-34-and-28-files-sanitized-evidence
           path: |
             out/pub032_v21128_handoff_proof.json
             out/pub032_v21128_publisher_report.json
             out/pub032_v21128_gui_trace.json
             out/pub032_v21128_payload_audit.json
+            out/pub032_v21128_28_publisher_report.json
+            out/pub032_v21128_28_gui_trace.json
+            out/pub032_v21128_28_payload_audit.json
           if-no-files-found: warn
