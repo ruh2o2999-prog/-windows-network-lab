@@ -110,6 +110,14 @@ def fallback_ui_click_history(run,snapshot,pre,output):
     """
     expected=f'已结束 · 请求 {len(pre["requests"])}'
     actions=[];xml=snapshot('r109_ui_initial_panel')
+    # The formal panel hides history under advanced tools until the user's
+    # original simple-advanced button was clicked. ADB fallback must do that
+    # before any scroll; offscreen accessibility nodes are not valid targets.
+    if '展开高级工具' in xml:
+        expanded=touch(xml,['展开高级工具'],run,snapshot,'r109_ui_advanced_expanded')
+        if not expanded:return {'clicked':False,'reason':'Formal advanced toggle was not clickable','actions':actions}
+        xml=expanded['xml']
+        actions.append({'mode':'expanded_original_advanced_button','hit':expanded['hit']})
     for i in range(42):
         rows=ui_nodes(xml)
         labels=[n for n in rows if '历史观察记录与恢复' in n.get('text','')]
