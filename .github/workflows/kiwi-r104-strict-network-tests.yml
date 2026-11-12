@@ -6,6 +6,7 @@ on:
       - '.github/workflows/kiwi-r104-strict-network-tests.yml'
       - 'kiwi-r104-lab/r104_network_strict_parity.py'
       - 'kiwi-r104-lab/test_r104_network_strict_parity.py'
+      - 'kiwi-r104-lab/r104-production-network-test.py'
   pull_request:
     branches: [main]
     paths:
@@ -24,7 +25,7 @@ jobs:
       - name: Verify syntax and strict positive/negative business evidence
         run: |
           set -euo pipefail
-          python3 -m py_compile kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py
+          python3 -m py_compile kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py kiwi-r104-lab/r104-production-network-test.py
           PYTHONPATH=kiwi-r104-lab python3 kiwi-r104-lab/test_r104_network_strict_parity.py
       - name: State the verification boundary
         run: |
