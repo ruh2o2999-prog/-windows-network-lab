@@ -1,0 +1,46 @@
+name: P006 pinned CMFA mihomo public API compatibility
+on:
+  push:
+    branches: [clashmeta-p006-api-contract]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Fetch exact published CMFA and mihomo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git clone --filter=blob:none https://github.com/MetaCubeX/ClashMetaForAndroid.git upstream
+          git -C upstream checkout 215e017ae88ac2a1edf24fdb520512c1423c89f4
+          git -C upstream submodule update --init --recursive
+          test "$(git -C upstream rev-parse HEAD)" = 215e017ae88ac2a1edf24fdb520512c1423c89f4
+          test "$(git -C upstream rev-parse HEAD:core/src/foss/golang/clash)" = 0455d0d28c4526937380505153e65a843d8612e8
+          git -C upstream submodule status --recursive > evidence/submodules.txt
+      - name: Compile published API contract against actual pinned core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp p006-public-api-contract_test.go upstream/core/src/main/golang/native/tun/p006_public_api_contract_test.go
+          (cd upstream/core/src/main/golang && go test -run '^TestP006Contract$' -count=1 -vet=off ./native/tun ) 2>&1 | tee evidence/go-api-compile.txt
+      - name: Capture build identity
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          go version > evidence/go-version.txt
+          printf 'This is a public-interface compiler only: no protected UID guard, no APK, no leak verification.\n' > evidence/NOT_RELEASE.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p006-public-upstream-api-contract-evidence
+          path: evidence/
+          if-no-files-found: warn
