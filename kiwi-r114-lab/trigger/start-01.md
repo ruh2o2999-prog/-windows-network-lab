@@ -1,0 +1,1 @@
+R114 isolated Android11 Kiwi WAL native Worker experiment. Only encrypted candidate is exchanged; original R112 and R111 records preserved. SHA-256 aabbb2235edcfb2378711d35297e769e43416629cecfc3dd98d915c915fbc1c1.
