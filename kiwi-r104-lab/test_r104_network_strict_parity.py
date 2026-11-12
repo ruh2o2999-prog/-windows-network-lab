@@ -74,3 +74,8 @@ with tempfile.TemporaryDirectory(prefix="r104_strict_") as t:
             assert r["status"]=={"passed":8,"failed":0},(name,r)
         out[name]="PASS"
 print("R104_STRICT_NETWORK_REGRESSIONS",json.dumps(out,ensure_ascii=False))
+Path("out").mkdir(exist_ok=True)
+Path("out/r104_strict_regression_results.json").write_text(json.dumps(
+    {"suite":"R104 exact-network parity synthetic regression",
+     "passed":len(out),"failed":0,"tests":out,
+     "formal_production_export_tested":False},ensure_ascii=False,indent=2)+"\\n",encoding="utf8")
