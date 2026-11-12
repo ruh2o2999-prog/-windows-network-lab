@@ -1,0 +1,52 @@
+name: Douyin C4C2B Android11 Verified Profile Container Scroll
+on:
+  push:
+    branches: [douyin-c4c2b-profile-scroll-20261112]
+    paths:
+      - '.github/workflows/douyin-c4c2b-profile-scroll.yml'
+      - 'c4c2b_public_probe/C4C2B_public_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c4c2b-android11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover checksum-pinned C4C2B public probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4c2b_exp
+          base64 -d c4c2b_public_probe/C4C2B_public_probe.zip.b64 > c4c2b_exp/payload.zip
+          echo 'a1b7d67f486f13be732dc7241a672981bc2f21305f7795b01efc0d96881daa13  c4c2b_exp/payload.zip' | sha256sum -c -
+          unzip -q c4c2b_exp/payload.zip -d c4c2b_exp
+          test -s c4c2b_exp/C4C2B_Android11_Research.apk
+          bash -n c4c2b_exp/run_c4c2b_android11.sh
+      - name: Enable hardware acceleration
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Android11 verified mobile page container-scroll experiment
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash c4c2b_exp/run_c4c2b_android11.sh
+      - name: Save Android logs and screenshots even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4c2b-real-android11-profile-scroll
+          path: c4c2b_results/
+          retention-days: 14
+          if-no-files-found: warn
