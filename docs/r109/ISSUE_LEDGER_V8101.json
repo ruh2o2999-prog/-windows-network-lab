@@ -1,0 +1,210 @@
+{
+  "project_id": "Kiwi插件开发-R109",
+  "protocol_version": "8.10.1-agent-method",
+  "release_intent": false,
+  "requirements": [
+    {
+      "id": "REQ-0001",
+      "target": "已结束的原始捕获任务在强制重启后原样可导出",
+      "acceptance": "实际 Android Kiwi 冷启动后导出同一 captureSessionId 的原始历史 ZIP，ADB 回读、CRC 通过，事件集合及 36 份正文 SHA256 与重启前实际 ZIP 一致",
+      "mandatory": true,
+      "test_ids": [
+        "TEST-0001"
+      ],
+      "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+      "authority_quote": "开始进行下一步。",
+      "authority_ref": "本会话 R108 后续研发承接及原编号冻结清单（具体原始 G5 消息待核实）"
+    },
+    {
+      "id": "REQ-0002",
+      "target": "仅以原正式插件 UI 完成历史导出，不擅自修改宿主/插件形态",
+      "acceptance": "真实安装原 SHA256 V0.4.58，原 Kiwi Extensions > Details > Extension options 导航成功，可见正式 panel 并触发目标任务的原生导出事件；不以 CI 绿灯或合成测试替代",
+      "mandatory": true,
+      "test_ids": [
+        "TEST-0002"
+      ],
+      "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+      "authority_quote": "咱们做的是插件。不做apk也不重新设计浏览器。",
+      "authority_ref": "用户历史会话《Kiwi插件开发》，2026-11-09（产品形态历史约束；完整消息标识待核实）"
+    }
+  ],
+  "tests": [
+    {
+      "id": "TEST-0001",
+      "req_id": "REQ-0001",
+      "status": "not_run",
+      "evidence_ids": [],
+      "mandatory": true,
+      "min_evidence": "A"
+    },
+    {
+      "id": "TEST-0002",
+      "req_id": "REQ-0002",
+      "status": "not_run",
+      "evidence_ids": [],
+      "mandatory": true,
+      "min_evidence": "A"
+    }
+  ],
+  "issues": [
+    {
+      "id": "ISSUE-0001",
+      "req_id": "REQ-0001",
+      "test_ids": [
+        "TEST-0001"
+      ],
+      "status": "open",
+      "candidate_routes": [
+        "native_details_options",
+        "prime_fixture_direct_original_panel",
+        "kiwi_main_menu_original_extension_action"
+      ],
+      "next_action": "获取冷重启后的第二份真实历史导出 ZIP，并运行 R108 双 ZIP 逐事件/正文 SHA256 对账",
+      "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+      "acceptance": "实际 Android Kiwi 冷启动后导出同一 captureSessionId 的原始历史 ZIP，ADB 回读、CRC 通过，事件集合及 36 份正文 SHA256 与重启前实际 ZIP 一致",
+      "route_attempts": [
+        {
+          "id": "ATT-001",
+          "route_id": "prior_omnibox_scroll_family",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "result": "failed",
+          "evidence_ids": []
+        },
+        {
+          "id": "ATT-002",
+          "route_id": "prior_omnibox_scroll_family",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "result": "failed",
+          "evidence_ids": []
+        },
+        {
+          "id": "ATT-003",
+          "route_id": "prior_omnibox_scroll_family",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "result": "failed",
+          "evidence_ids": []
+        },
+        {
+          "id": "ATT-004",
+          "route_id": "prior_omnibox_scroll_family",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "result": "failed",
+          "evidence_ids": []
+        },
+        {
+          "id": "ATT-005",
+          "route_id": "prior_omnibox_scroll_family",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "result": "failed",
+          "evidence_ids": []
+        }
+      ],
+      "route_changes": [
+        {
+          "from_route_id": "prior_omnibox_scroll_family",
+          "trigger_attempt_ids": [
+            "ATT-001",
+            "ATT-002",
+            "ATT-003",
+            "ATT-004",
+            "ATT-005"
+          ],
+          "reason": "重启后直接进入 chrome-extension panel 显示 ERR_FILE_NOT_FOUND，长页面和嵌套历史任务列表滚动、按钮坐标不稳定；第4次失败必须换路线",
+          "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+          "search_rounds": [
+            {
+              "round": 1,
+              "language": "English + 中文",
+              "source_type": "official_docs",
+              "query": "Kiwi Browser Android options_page chrome://extensions Details Extension options; 扩展选项页面 打开",
+              "source_ref": "https://github.com/GoogleChrome/developer.chrome.com/blob/main/site/en/docs/extensions/mv3/options/index.md"
+            },
+            {
+              "round": 2,
+              "language": "English + 中文（跨语种复核）",
+              "source_type": "qa_forum",
+              "query": "Kiwi extension options after restart 安卓浏览器 插件无法打开 设置 详情",
+              "source_ref": "https://www.reddit.com/r/kiwibrowser/comments/13q52qz"
+            }
+          ],
+          "alternatives": [
+            {
+              "route_id": "native_details_options",
+              "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+              "source_ref": "https://www.reddit.com/r/kiwibrowser/comments/1dmllr2"
+            },
+            {
+              "route_id": "prime_fixture_direct_original_panel",
+              "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+              "source_ref": "https://github.com/ruh2o2999-prog/-windows-network-lab/actions/runs/43197003529"
+            },
+            {
+              "route_id": "kiwi_main_menu_original_extension_action",
+              "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+              "source_ref": "https://www.gtricks.com/android/install-chrome-extensions-on-android-with-kiwi-browser/amp/"
+            }
+          ],
+          "selected_route_id": "native_details_options",
+          "selected_experiment_id": "EXP-0001"
+        }
+      ],
+      "title": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）｜R108-EXPORT-01/R108-ZIP-01 原任务重启后二次导出未闭环"
+    },
+    {
+      "id": "ISSUE-0002",
+      "req_id": "REQ-0002",
+      "test_ids": [
+        "TEST-0002"
+      ],
+      "status": "awaiting_validation",
+      "candidate_routes": [
+        "native_details_options",
+        "prime_fixture_direct_original_panel",
+        "kiwi_main_menu_original_extension_action"
+      ],
+      "next_action": "检查 Run 43223192968 的 Android 实际 panel 导航和下载原始证据，正式通过前不销项",
+      "product_form": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+      "acceptance": "真实安装原 SHA256 V0.4.58，原 Kiwi Extensions > Details > Extension options 导航成功，可见正式 panel 并触发目标任务的原生导出事件；不以 CI 绿灯或合成测试替代",
+      "route_attempts": [],
+      "route_changes": [],
+      "title": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）｜R109-ENTRY-01 Kiwi 冷启动后的正式扩展选项页入口"
+    }
+  ],
+  "evidence": [],
+  "experiments": [
+    {
+      "id": "EXP-0001",
+      "issue_id": "ISSUE-0001",
+      "route": "native_details_options",
+      "result": "inconclusive",
+      "evidence_ids": []
+    }
+  ],
+  "product_form": {
+    "label": "Kiwi 浏览器 MV2 插件（正式 V0.4.58，不更换浏览器/不另做 APK）",
+    "status": "confirmed",
+    "authority_quote": "咱们做的是插件。不做apk也不重新设计浏览器。",
+    "authority_ref": "用户历史会话《Kiwi插件开发》，2026-11-09（产品形态历史约束；完整消息标识待核实）"
+  },
+  "constraint_revision": 2,
+  "constraints": [
+    {
+      "id": "CON-0001",
+      "text": "保持原 Kiwi MV2 插件，不改浏览器、不以另做 APK 替代",
+      "user_quote": "咱们做的是插件。不做apk也不重新设计浏览器。",
+      "source_ref": "用户历史会话《Kiwi插件开发》，2026-11-09（产品形态历史约束；完整消息标识待核实）",
+      "status": "active",
+      "revision": 1
+    },
+    {
+      "id": "CON-0002",
+      "text": "后续采用 V8.10.1 四套软件研发规范及三轮实质复核、原编号闭环",
+      "user_quote": "后面全按照这个执行。",
+      "source_ref": "本会话 2026-11-12 用户上传 V8.10.1 ZIP 时的明确指令",
+      "status": "active",
+      "revision": 2
+    }
+  ],
+  "corrections": [],
+  "scope_changes": []
+}
