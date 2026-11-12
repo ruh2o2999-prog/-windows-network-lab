@@ -1,0 +1,12 @@
+{
+  "product_form": "independent_android_apk_single_installer",
+  "route_id": "mobile_share_page_scroll_and_passive_cdp",
+  "experiment_id": "C4C3E-route-and-successful-cursor-evidence-once",
+  "experiment_status": "allowed_once",
+  "new_discriminant": "sanitized_actual_route_and_response_cursor_provenance",
+  "baseline_github_run": 43225366486,
+  "baseline_verified_24th_plus": false,
+  "baseline_target_bound_request_count": 1,
+  "baseline_distinct_successful_cursor_count": 1,
+  "business_acceptance_locked": true
+}
