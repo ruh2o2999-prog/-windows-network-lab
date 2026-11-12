@@ -28,9 +28,24 @@ def signature(url):
     if len(seq)!=1 or not seq[0].isdigit():return None
     return (split.path, int(seq[0]))
 
-def event_records(tree):
-    """Supported shapes: request URL object, HAR entry, or nested trace data.
-    Unknown/dual event schemas stay FAIL until a verified adapter exists."""
+def event_records(tree,kind=None):
+    """Extract one request per row, never duplicate Trace timeline events.
+
+    Frozen formal MV2 V0.4.58 trace-core.js KiwiTrace.view() exposes
+    top-level requests and timeline; timeline can repeat a request URL.
+    Reject unknown/ambiguous root structures rather than silently merging.
+    """
+    if kind=='trace':
+        if not isinstance(tree,dict):return []
+        has_requests=isinstance(tree.get('requests'),list)
+        has_legacy=isinstance(tree.get('traceEvents'),list)
+        if has_requests==has_legacy:return []
+        tree=tree['requests'] if has_requests else tree['traceEvents']
+    elif kind=='har':
+        if not isinstance(tree,dict) or not isinstance(tree.get('log'),dict) or not isinstance(tree['log'].get('entries'),list):return []
+        tree=tree['log']['entries']
+    elif kind=='requests':
+        if not isinstance(tree,list):return []
     result=[]
     def walk(value):
         if isinstance(value,list):
@@ -81,7 +96,7 @@ def verify(zip_file,server_log,start_ns,end_ns,report_path):
                 if not target:
                     observed[kind]=None
                     continue
-                try:observed[kind]=event_records(json.loads(z.read(target)))
+                try:observed[kind]=event_records(json.loads(z.read(target)),kind=kind)
                 except (ValueError,UnicodeError) as e:
                     observed[kind]=None
             gate("STRICT_03_all_three_json_parsed",all(v is not None for v in observed.values()),
