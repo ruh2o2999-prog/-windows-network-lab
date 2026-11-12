@@ -1,0 +1,37 @@
+name: Kiwi R109 real history DOM and archive gate preflight
+on:
+  push:
+    branches: [kiwi-r109-history-cdp-or-ui-verified]
+    paths:
+      - 'kiwi-r109-lab/**'
+      - 'kiwi-r104-lab/r104-production-network-test.py'
+      - '.github/workflows/kiwi-r109-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  history-recovery-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax, fail-closed UI target and strict prior dual ZIP regression
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 -m py_compile kiwi-r109-lab/*.py kiwi-r108-lab/r108_restart_history.py kiwi-r108-lab/r108_offline_recovery_parity.py kiwi-r104-lab/r104-production-network-test.py
+          PYTHONPATH=kiwi-r109-lab:kiwi-r108-lab python3 kiwi-r109-lab/test_r109_dom_and_fallback.py | tee out/r109_dom_preflight.log
+          PYTHONPATH=kiwi-r108-lab python3 kiwi-r108-lab/test_r108_offline_recovery_parity.py | tee out/r109_old_parity_regression.log
+      - name: Preserve exact source hashes and test scope
+        if: always()
+        run: |
+          sha256sum kiwi-r109-lab/*.py kiwi-r104-lab/r104-production-network-test.py > out/r109_source_sha256.txt
+          echo 'Static+synthetic preflight only; real Android Kiwi historical ZIP comparison is mandatory and NOT passed by this job.' > out/SCOPE.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kiwi-r109-ui-and-parity-preflight
+          path: |
+            out/*
+            kiwi-r109-lab/*.py
+          if-no-files-found: warn
