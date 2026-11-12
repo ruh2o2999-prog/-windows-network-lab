@@ -126,6 +126,11 @@ jobs:
             public static extern IntPtr FindWindow(string cls,string name);
             [DllImport("user32.dll",SetLastError=true)]
             public static extern IntPtr SendMessage(IntPtr h,uint msg,IntPtr w,IntPtr l);
+            public delegate bool EnumCallback(IntPtr hwnd,IntPtr extra);
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern bool EnumThreadWindows(uint thread, EnumCallback callback, IntPtr extra);
+            [DllImport("user32.dll", EntryPoint="GetClassNameW", CharSet=CharSet.Unicode)]
+            public static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder dst, int cap);
           }
           '@
           $p=Start-Process -FilePath (Resolve-Path 'out/pub032_gui_probe.exe').Path -PassThru
@@ -151,6 +156,25 @@ jobs:
             $r.child_hwnd_written=$true
             $r.child_window_station=([regex]::Match($raw,'WINSTA=([^\\r\\n]+)')).Groups[1].Value
             $r.child_desktop=([regex]::Match($raw,'DESKTOP=([^\\r\\n]+)')).Groups[1].Value
+            $r.main_window_handle=$p.MainWindowHandle.ToInt64()
+            $handles=New-Object 'System.Collections.Generic.List[System.IntPtr]'
+            $callback=[P32Probe+EnumCallback]{
+              param([IntPtr]$hwnd,[IntPtr]$ignored)
+              $handles.Add($hwnd)
+              return $true
+            }
+            foreach($thread in $p.Threads){
+              [void][P32Probe]::EnumThreadWindows([uint32]$thread.Id,$callback,[IntPtr]::Zero)
+            }
+            $classes=@()
+            foreach($hwnd in $handles){
+              $sb=New-Object System.Text.StringBuilder 256
+              [void][P32Probe]::GetClassName($hwnd,$sb,$sb.Capacity)
+              $classes+= $sb.ToString()
+            }
+            $r.enum_thread_window_count=$handles.Count
+            $r.enum_thread_classes=$classes
+            $r.enum_thread_found_probe=($classes -contains 'PUB032GUIProbe')
             $hex=([regex]::Match($raw,'HWND=([0-9A-Fa-f]+)')).Groups[1].Value
             if($hex){
               $ptr=[IntPtr]([Convert]::ToInt64($hex,16))
