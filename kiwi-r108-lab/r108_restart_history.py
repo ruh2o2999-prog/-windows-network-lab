@@ -225,7 +225,40 @@ def execute(formal_zip,run,snapshot,state,OUT,fixture_url,open_internal=None):
         # exact original task has been independently identified in UI.
         # A wrong-task export is expressly forbidden.
         if exact:
-            chosen=click_matching_historical_export(match_xml,request_marker,run,snapshot)
+            # Accessibility exposes offscreen old tasks with [0,0] bounds.
+            # Scroll outside nested widgets until the real history list is
+            # visible; then scroll *that* list until matching export is visible.
+            steps=[]
+            chosen=None
+            for attempt in range(20):
+                chosen=click_matching_historical_export(match_xml,request_marker,run,snapshot)
+                if chosen and 'xml' in chosen:break
+                history_lists=[]
+                for node in ui_nodes(match_xml):
+                    if node.get('scrollable')!='true':continue
+                    label=node.get('text','')+' '+node.get('content-desc','')
+                    if request_marker not in label or '清空此任务' not in label:continue
+                    m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',node.get('bounds',''))
+                    if not m:continue
+                    x1,y1,x2,y2=map(int,m.groups())
+                    if x2-x1>300 and y2-y1>140 and y2>340 and y1<1470:
+                        history_lists.append((x1,y1,x2,y2))
+                if history_lists:
+                    x1,y1,x2,y2=history_lists[-1]
+                    x=max(120,min(940,(x1+x2)//2))
+                    top=max(320,y1+45);bottom=min(1450,y2-45)
+                    if bottom<=top+55:
+                        mode='outer-margin';coords=(24,1350,24,440)
+                    else:
+                        mode='history-inner';coords=(x,bottom,x,top)
+                else:
+                    mode='outer-margin';coords=(24,1350,24,440)
+                run(['adb','shell','input','swipe',*(str(k) for k in coords),'340'])
+                time.sleep(1.8)
+                match_xml=snapshot('r108_history_button_scroll_'+str(attempt))
+                steps.append({'attempt':attempt,'mode':mode,'coords':coords,
+                              'history_list_bounds':history_lists[-1] if history_lists else None})
+            result['debug']['export_button_scroll_trace']=steps
             result['debug']['history_export_control']=(
                 {k:v for k,v in chosen.items() if k!='xml'} if chosen else None)
             clicked=bool(chosen and 'xml' in chosen)
