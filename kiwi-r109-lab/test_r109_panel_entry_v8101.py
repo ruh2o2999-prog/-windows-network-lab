@@ -30,3 +30,31 @@ assert page_ok(valid_page)
 assert target_safe(real_manager,['Details'])
 assert not target_safe('<hierarchy><node text="Extension options" bounds="[0,0][0,0]"/></hierarchy>',['Extension options'])
 print("R109_V8101_REAL_MANAGER_AND_ERROR_PAGE_REGRESSIONS PASS=7 SCOPE=STATIC_ONLY")
+
+# Reproduce the real Run43223192968 confusion: the omnibox treated
+# kiwi://extensions/ as a Google search; the chosen route MUST not type it.
+import r109_panel_entry_v8101 as panel_module
+original_sleep=panel_module.time.sleep
+original_touch=panel_module.touch
+try:
+    panel_module.time.sleep=lambda _:None
+    details='''<?xml version="1.0"?><hierarchy><node text="Extension options"
+    clickable="true" bounds="[320,580][750,650]"/></hierarchy>'''
+    panel_module.touch=lambda xml,keys,run,snapshot,label: {
+        'xml':details if 'Details' in keys else valid_page,
+        'hit':'Details' if 'Details' in keys else 'Extension options'}
+    calls=[]
+    def native_menu(xml):
+        calls.append('kiwi_native_overflow')
+        return real_manager,True
+    def block_omnibox(url,label):
+        raise AssertionError('NO OMNIBOX INTERNAL SEARCH SHOULD OCCUR: '+url)
+    actual, evidence=panel_module.open_original_panel(
+        lambda args,timeout=30:(0,'ok'),lambda label:'127.0.0.1:18764 R104_NETWORK_FIXTURE_READY',
+        block_omnibox,real_id,'http://127.0.0.1:18764/',native_menu)
+    assert page_ok(actual) and evidence['native_menu_navigated']
+    assert evidence['selected_route']=='original_options_ui' and calls==['kiwi_native_overflow']
+finally:
+    panel_module.time.sleep=original_sleep
+    panel_module.touch=original_touch
+print('R109_NATIVE_KIWI_MENU_NOT_GOOGLE_SEARCH_REGRESSION=PASS STATIC_ONLY')
