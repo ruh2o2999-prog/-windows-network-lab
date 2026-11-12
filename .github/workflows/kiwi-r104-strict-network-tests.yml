@@ -6,6 +6,7 @@ on:
       - '.github/workflows/kiwi-r104-strict-network-tests.yml'
       - 'kiwi-r104-lab/r104_network_strict_parity.py'
       - 'kiwi-r104-lab/test_r104_network_strict_parity.py'
+      - 'kiwi-r104-lab/test_r104_formal_trace_schema.py'
       - 'kiwi-r104-lab/r104-production-network-test.py'
       - 'kiwi-r104-lab/R104_STRICT_PHASE_REPORT.md'
   pull_request:
@@ -14,6 +15,7 @@ on:
       - '.github/workflows/kiwi-r104-strict-network-tests.yml'
       - 'kiwi-r104-lab/r104_network_strict_parity.py'
       - 'kiwi-r104-lab/test_r104_network_strict_parity.py'
+      - 'kiwi-r104-lab/test_r104_formal_trace_schema.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,8 +28,9 @@ jobs:
       - name: Verify syntax and strict positive/negative business evidence
         run: |
           set -euo pipefail
-          python3 -m py_compile kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py kiwi-r104-lab/r104-production-network-test.py
+          python3 -m py_compile kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py kiwi-r104-lab/test_r104_formal_trace_schema.py kiwi-r104-lab/r104-production-network-test.py
           PYTHONPATH=kiwi-r104-lab python3 kiwi-r104-lab/test_r104_network_strict_parity.py
+          PYTHONPATH=kiwi-r104-lab python3 kiwi-r104-lab/test_r104_formal_trace_schema.py
       - name: State the verification boundary
         run: |
           echo 'R104: synthetic strict-reconciler tests only. Formal Kiwi V0.4.58 export is NOT validated by this workflow.'
@@ -41,6 +44,7 @@ jobs:
             'kiwi-r104-lab/r104-production-network-test.py',
             'kiwi-r104-lab/r104_network_strict_parity.py',
             'kiwi-r104-lab/test_r104_network_strict_parity.py',
+            'kiwi-r104-lab/test_r104_formal_trace_schema.py',
             'kiwi-r104-lab/r104_capture_reconcile.py',
             'kiwi-r104-lab/test_r104_capture_reconcile.py',
             'kiwi-r104-lab/controlled_fixture_server.py',
@@ -61,6 +65,7 @@ jobs:
             kiwi-r104-lab/r104-production-network-test.py
             kiwi-r104-lab/r104_network_strict_parity.py
             kiwi-r104-lab/test_r104_network_strict_parity.py
+            kiwi-r104-lab/test_r104_formal_trace_schema.py
             kiwi-r104-lab/r104_capture_reconcile.py
             kiwi-r104-lab/test_r104_capture_reconcile.py
             kiwi-r104-lab/controlled_fixture_server.py
