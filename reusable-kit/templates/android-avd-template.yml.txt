@@ -1,0 +1,40 @@
+# Copy this template into YOUR repository .github/workflows/android-avd.yml
+# Copy the toolkit tools/ directory into your repository root.
+# Replace APK_URL and APP_PACKAGE; do not commit private credentials or APK bytes.
+name: Android Real APK Smoke (template)
+on:
+  workflow_dispatch:
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch target APK
+        env:
+          APK_URL: https://example.invalid/app.apk
+        run: |
+          mkdir -p out
+          curl --fail --location --retry 2 "$APK_URL" -o /tmp/test-app.apk
+          test -s /tmp/test-app.apk
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Android Emulator x64 Google APIs
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 tools/android_smoke.py --apk /tmp/test-app.apk --package com.example.app --out out
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-real-smoke-evidence
+          path: out/
