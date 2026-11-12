@@ -1,0 +1,58 @@
+name: Douyin C4C3G One Site-Issued Legacy Signature Cursor Trial
+on:
+  push:
+    branches: [douyin-c4c3g-server-cursor-20261113]
+    paths:
+      - '.github/workflows/douyin-c4c3g-server-cursor.yml'
+      - 'c4c3g_public_probe/C4C3G_public_probe.zip.b64'
+# Intentionally no workflow_dispatch to prevent repetitive manual probing.
+permissions:
+  contents: read
+jobs:
+  one-genuine-continuation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify source-pinned APK and standalone JS, no rebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4c3g_exp
+          base64 -d c4c3g_public_probe/C4C3G_public_probe.zip.b64 > c4c3g_exp/payload.zip
+          echo '0ef7ac70cd07240f95f62404e7dc5ac6101c23ac4689a7f21a6d43a9f5d8f650  c4c3g_exp/payload.zip' | sha256sum -c -
+          unzip -q c4c3g_exp/payload.zip -d c4c3g_exp
+          (cd c4c3g_exp && sha256sum -c SHA256SUMS.txt)
+          test -s c4c3g_exp/C4C3_Android11_Research.apk
+          node --check c4c3g_exp/src/cdp_firstparty_cursor.mjs
+          node c4c3g_exp/src/pager_rules.mjs
+          bash -n c4c3g_exp/run_android11.sh
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Run exactly one real Android11 first-party server cursor continuation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash c4c3g_exp/run_android11.sh
+      - name: Archive logs and original business verdict even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4c3g-one-real-server-cursor
+          path: c4c3g_results/
+          retention-days: 14
+          if-no-files-found: warn
