@@ -131,6 +131,12 @@ jobs:
             public static extern bool EnumThreadWindows(uint thread, EnumCallback callback, IntPtr extra);
             [DllImport("user32.dll", EntryPoint="GetClassNameW", CharSet=CharSet.Unicode)]
             public static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder dst, int cap);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr GetDlgItem(IntPtr hwnd,int id);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool EnumChildWindows(IntPtr parent,EnumCallback callback,IntPtr extra);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern int GetDlgCtrlID(IntPtr child);
           }
           '@
           $p=Start-Process -FilePath (Resolve-Path 'out/pub032_gui_probe.exe').Path -PassThru
@@ -176,6 +182,21 @@ jobs:
             $r.enum_thread_classes=$classes
             $r.enum_thread_found_probe=($classes -contains 'PUB032GUIProbe')
             $hex=([regex]::Match($raw,'HWND=([0-9A-Fa-f]+)')).Groups[1].Value
+            if($hex){
+              $probeHwnd=[IntPtr]([Convert]::ToInt64($hex,16))
+              $direct=[P32Probe]::GetDlgItem($probeHwnd,105)
+              $r.synthetic_GetDlgItem_105_found=($direct -ne [IntPtr]::Zero)
+              $r.synthetic_GetDlgItem_105_hwnd=$direct.ToInt64()
+              $childHandles=New-Object 'System.Collections.Generic.List[System.IntPtr]'
+              $cb=[P32Probe+EnumCallback]{
+                param([IntPtr]$hh,[IntPtr]$ignored)
+                $childHandles.Add($hh)
+                return $true
+              }
+              [void][P32Probe]::EnumChildWindows($probeHwnd,$cb,[IntPtr]::Zero)
+              $r.synthetic_child_control_ids=@($childHandles | ForEach-Object {[P32Probe]::GetDlgCtrlID($_)})
+              $r.synthetic_child_enum_count=$childHandles.Count
+            }
             if($hex){
               $ptr=[IntPtr]([Convert]::ToInt64($hex,16))
               [void][P32Probe]::SendMessage($ptr,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)
