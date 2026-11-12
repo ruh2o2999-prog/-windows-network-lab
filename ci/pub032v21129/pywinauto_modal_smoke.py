@@ -40,9 +40,15 @@ try:
                     raise RuntimeError("popup PID mismatch; refusing interaction")
                 buttons = [b for b in dialog.descendants(control_type="Button")
                            if b.is_visible() and b.is_enabled()]
-                if len(buttons) != 1:
-                    errors.append({"backend": backend, "visible_buttons": len(buttons)})
+                # UIA may expose the title-bar Close control as well as dialog OK.
+                # Never invoke every visible Button or assume the first is safe.
+                named_ok = [b for b in buttons if b.window_text().strip().casefold()
+                            in ("ok", "确定")]
+                if len(named_ok) != 1:
+                    errors.append({"backend": backend, "visible_buttons": len(buttons),
+                                   "button_names": [b.window_text()[:30] for b in buttons]})
                     continue
+                buttons = named_ok
                 result["popup_owner_pid_verified"] = True
                 result["backend"] = backend
                 # UIA invokes the actual provider, win32 click_input is the fallback.
