@@ -172,7 +172,7 @@ def canary():
               'js':['probe.js'],'run_at':'document_idle'}]}
     with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False))
-        z.writestr('probe.js',"console.log('Kiwi R101 Probe loaded');")
+        z.writestr('probe.js',"(function(){function run(){if(document.getElementById('kiwi-r102-canary-probe'))return;var el=document.createElement('div');el.id='kiwi-r102-canary-probe';el.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE';el.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:#f9efae;color:#111;padding:8px;font-size:16px';document.documentElement.appendChild(el);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});else run();})();")
     state['canary_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
     return path
 
@@ -281,10 +281,17 @@ def main():
     time.sleep(10);xml=snapshot('example_com')
     online=('example.com' in xml and 'Connection is secure' in xml)
     log_gate('A6_https_real_page',online,'Kiwi URL bar example.com with secure icon='+str(online)+' '+txt[:180]+'; screenshot saved')
+    time.sleep(3)
+    xml=snapshot('r102_canary_live_content_script')
+    marker='R102_KIWI_CONTENT_SCRIPT_ACTIVE'
+    log_gate('A5e_canary_script_real_page_execution',marker in xml,
+             'Android Kiwi rendered a DOM element inserted by the Canary content script='+str(marker in xml))
     state['gates']['A7_R99_production_extension']={'status':'NOT_RUN',
         'detail':'private 370KB R99 MV2 ZIP is not included in this external runner; it is not the canary'}
 
 if __name__=='__main__':
+    # Export exact Python test harness into the run's evidence artifact.
+    (OUT/'r102_ci_test_harness.py').write_bytes(Path(__file__).read_bytes())
     try:main()
     except Exception as e:
         state['errors'].append(repr(e));print('EXCEPTION',repr(e),flush=True)
