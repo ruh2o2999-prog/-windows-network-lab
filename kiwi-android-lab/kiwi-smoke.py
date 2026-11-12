@@ -61,9 +61,10 @@ def tap_text_any(xml,keys,label):
     except Exception:return None
     choices=[]
     for n in r.iter('node'):
-        a=n.attrib;value=(a.get('text','')+' '+a.get('content-desc','')).strip()
+        a=n.attrib;title=a.get('text','').strip();desc=a.get('content-desc','').strip()
+        value=title or desc
         if a.get('enabled')=='false':continue
-        if not any(value.lower()==k.lower() for k in keys):continue
+        if not any(title.lower()==k.lower() or desc.lower()==k.lower() for k in keys):continue
         m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',a.get('bounds',''))
         if m:
             x1,y1,x2,y2=map(int,m.groups());choices.append(((x1+x2)//2,(y1+y2)//2,value))
@@ -73,6 +74,15 @@ def tap_text_any(xml,keys,label):
     time.sleep(4)
     print('MENU_TAP '+label+' '+val,flush=True)
     return snapshot(label)
+
+def is_extension_manager_page(xml):
+    """A menu label alone is not proof of navigation; require manager-specific content."""
+    low=xml.lower()
+    # Kiwi overflow lists both New Incognito tab and Recent tabs, unlike the manager.
+    if 'new incognito tab' in low and 'recent tabs' in low:return False
+    return 'extensions' in low and any(marker in low for marker in [
+        'developer mode','load from', 'install extension', 'extensions installed',
+        'chrome://extensions', 'extensions from', 'extension id', 'extension management'])
 
 def find_extensions_via_kiwi_menu(xml):
     menu=tap_target(xml,['More options','更多选项'],'kiwi_overflow_menu')
@@ -160,27 +170,27 @@ def main():
     # Prefer Kiwi's native Extensions menu; Android does not resolve chrome:// VIEW.
     original_home=xml
     via_menu,menu_clicked=find_extensions_via_kiwi_menu(xml)
-    menu_reachable=bool(menu_clicked and via_menu and ('Extensions' in via_menu or 'extension' in via_menu.lower() or '扩展' in via_menu))
-    log_gate('A4a_native_kiwi_extensions_menu',menu_reachable,
-             'Kiwi overflow menu and Extensions entry visited='+str(menu_reachable))
+    menu_reachable=bool(menu_clicked and via_menu and is_extension_manager_page(via_menu))
+    log_gate('A4a_native_kiwi_extensions_entry_clicked',bool(menu_clicked),
+             'Kiwi native Extensions menu row clicked='+str(menu_clicked))
     if menu_reachable:xml=via_menu
     else:xml=original_home
     rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
                 '-d','kiwi://extensions/',PKG])
     time.sleep(8)
     xml=snapshot('extensions_initial')
-    reachable=menu_reachable or ('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
+    reachable=menu_reachable or is_extension_manager_page(xml)
     log_gate('A4_extension_manager_reachable',reachable,'native-menu='+str(menu_reachable)+' am-start='+txt[:300]+' html/ui markers='+str(reachable))
     if reachable and via_menu:xml=via_menu
     if not reachable:
         rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
                     '-d','chrome://extensions/',PKG])
         time.sleep(7);xml=snapshot('extensions_fallback')
-        reachable=('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
+        reachable=is_extension_manager_page(xml)
         log_gate('A4b_chrome_extensions_fallback',reachable,txt[:300])
         if not reachable:
             xml=type_internal_url('chrome://extensions/','internal_extensions')
-            reachable=('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
+            reachable=is_extension_manager_page(xml)
             log_gate('A4c_omnibox_extension_manager',reachable,'browser-internal chrome://extensions omnibox navigation')
     ext=canary()
     rc,txt=run(['adb','push',str(ext),'/sdcard/Download/Kiwi_R101_Canary_MV2.zip'])
