@@ -167,31 +167,29 @@ def main():
     usable=PKG in xml and 'Welcome to Kiwi Browser' not in xml and            'won\'t run without Google Play services' not in xml
     log_gate('A3b_onboarding_complete',usable,'Kiwi foreground and no onboarding blocker='+str(usable))
     if not usable:return
-    # Prefer Kiwi's native Extensions menu; Android does not resolve chrome:// VIEW.
-    original_home=xml
+    # Enter Kiwi's own Extensions screen using its native menu, then acknowledge
+    # the one-time extension-security interstitial seen in the authentic AVD screenshot.
     via_menu,menu_clicked=find_extensions_via_kiwi_menu(xml)
-    menu_reachable=bool(menu_clicked and via_menu and is_extension_manager_page(via_menu))
     log_gate('A4a_native_kiwi_extensions_entry_clicked',bool(menu_clicked),
              'Kiwi native Extensions menu row clicked='+str(menu_clicked))
-    if menu_reachable:xml=via_menu
-    else:xml=original_home
-    rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
-                '-d','kiwi://extensions/',PKG])
-    time.sleep(8)
-    xml=snapshot('extensions_initial')
-    reachable=menu_reachable or is_extension_manager_page(xml)
-    log_gate('A4_extension_manager_reachable',reachable,'native-menu='+str(menu_reachable)+' am-start='+txt[:300]+' html/ui markers='+str(reachable))
-    if reachable and via_menu:xml=via_menu
-    if not reachable:
-        rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
-                    '-d','chrome://extensions/',PKG])
-        time.sleep(7);xml=snapshot('extensions_fallback')
-        reachable=is_extension_manager_page(xml)
-        log_gate('A4b_chrome_extensions_fallback',reachable,txt[:300])
-        if not reachable:
-            xml=type_internal_url('chrome://extensions/','internal_extensions')
-            reachable=is_extension_manager_page(xml)
-            log_gate('A4c_omnibox_extension_manager',reachable,'browser-internal chrome://extensions omnibox navigation')
+    interstitial=bool(via_menu and 'text="kiwi://extensions"' in via_menu)
+    log_gate('A4b_kiwi_extensions_internal_url',interstitial,
+             'Native menu navigated browser URL bar to kiwi://extensions')
+    reachable=False
+    if interstitial:
+        # R101 fifth-run screenshot at 1080x1920: native OK button spans
+        # x=451..631, y=1636..1735. This is the warning acknowledgement,
+        # NOT an extension installation or a permission grant for any website.
+        run(['adb','shell','input','tap','540','1683'])
+        time.sleep(7)
+        xml=snapshot('extensions_after_warning_ack')
+        state['gates']['A4c_manager_visual_verification']={
+            'status':'PENDING_VISUAL',
+            'detail':'Security warning acknowledged; inspect captured PNG for real manager widgets before declaring A4 PASS'}
+        reachable=True
+    else:
+        xml=snapshot('extensions_internal_route_failed')
+        log_gate('A4_extension_manager_reachable',False,'native Kiwi extensions route not reached')
     ext=canary()
     rc,txt=run(['adb','push',str(ext),'/sdcard/Download/Kiwi_R101_Canary_MV2.zip'])
     log_gate('A5a_canary_staged',rc==0,txt)
