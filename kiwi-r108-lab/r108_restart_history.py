@@ -26,7 +26,7 @@ def baseline(path):
         for r in idx:
             if controlled(r.get('url')) and r.get('bodyPath') in names:
                 bodies[(str(r.get('key')),str(r.get('requestId')),str(r.get('url')))] =h(z.read(r['bodyPath']))
-        return {'session':tr['captureSessionId'],'requests':signature_rows(tr),
+        return {'session':tr['captureSessionId'],'requests':signature_rows(tr),'total_requests':len(tr.get('requests',[])),
                 'bodies':bodies,'fullzip_sha':h(Path(path).read_bytes()),
                 'entries':len(names),'index_count':len(idx),'startedAt':tr.get('startedAt'),
                 'endedAt':tr.get('endedAt')}
@@ -64,14 +64,14 @@ def evidence_gate(state,name,success,detail):
     state['gates'][name]={'status':'PASS' if success else 'FAIL','detail':detail}
     print(('PASS' if success else 'FAIL')+' '+name+': '+str(detail)[:330],flush=True)
     return success
-def execute(formal_zip,run,snapshot,state,OUT,fixture_url):
+def execute(formal_zip,run,snapshot,state,OUT,fixture_url,open_internal=None):
     result={'scope':'Kiwi Android 11 AVD, frozen MV2 V0.4.58, prior stopped task',
             'original_history_task_recovery':'NOT_VERIFIED','mid_capture_crash':'NOT_RUN',
             'original_zip_not_public':True,'gates':{},'debug':{}}
     try:
         pre=baseline(formal_zip)
         result['baseline']={'session':pre['session'],'requests':len(pre['requests']),
-                            'bodies':len(pre['bodies']),'sha256':pre['fullzip_sha'],
+                            'bodies':len(pre['bodies']),'all_requests':pre['total_requests'],'sha256':pre['fullzip_sha'],
                             'entries':pre['entries'],'startedAt':pre['startedAt'],
                             'endedAt':pre['endedAt']}
         evidence_gate(result,'R108_01_pre_restart_frozen_baseline',
@@ -106,10 +106,28 @@ def execute(formal_zip,run,snapshot,state,OUT,fixture_url):
         visible=any(x in xml for x in ('展开网站数据工具','网站数据观察与导出快捷入口','网站数据工具侧边栏'))
         evidence_gate(result,'R108_06_formal_extension_ui_still_installed',visible,
                       {'marker_present':visible})
-        if '展开网站数据工具' in xml or '网站数据观察与导出快捷入口' in xml:
-            clicked=touch(xml,['展开网站数据工具','网站数据观察与导出快捷入口'],run,snapshot,'r108_sidebar_open')
-            if clicked:xml=clicked['xml']
-        else:xml=snapshot('r108_sidebar_current')
+        # R108 second route: navigate to the *existing* full-size formal
+        # extension panel, not a test-only plugin or modified source.
+        extension_id=None
+        try:
+            manager=(OUT/'extension_after_import.xml').read_text(encoding='utf-8')
+            match=re.search(r'ID:\s*([a-p]{32})',manager)
+            extension_id=match.group(1) if match else None
+        except Exception as e:
+            result['debug']['extension_id_source_error']=repr(e)
+        result['debug']['formal_extension_id']=extension_id
+        if extension_id and open_internal:
+            xml=open_internal('chrome-extension://'+extension_id+'/panel.html',
+                              'r108_original_full_screen_panel')
+            evidence_gate(result,'R108_06b_original_full_panel_navigated',
+                          '网站数据观察与导出' in xml or '展开高级工具' in xml,
+                          {'extension_id':extension_id,'xml_bytes':len(xml)})
+        else:
+            if '展开网站数据工具' in xml or '网站数据观察与导出快捷入口' in xml:
+                clicked=touch(xml,['展开网站数据工具','网站数据观察与导出快捷入口'],
+                              run,snapshot,'r108_sidebar_open')
+                if clicked:xml=clicked['xml']
+            else:xml=snapshot('r108_sidebar_current')
         # Expand the real formal panel's existing advanced controls.
         expanded=None
         for i in range(5):
@@ -119,6 +137,14 @@ def execute(formal_zip,run,snapshot,state,OUT,fixture_url):
             xml=swipe(run,snapshot,'r108_scroll_to_advanced_'+str(i))
         evidence_gate(result,'R108_07_advanced_ui_opened',bool(expanded),
                       {'clicked':expanded and expanded['hit']})
+        # Normal fragment navigation inside the SAME formal extension page
+        # should scroll the long advanced UI straight to its existing anchor.
+        if expanded and extension_id and open_internal:
+            xml=open_internal('chrome-extension://'+extension_id+'/panel.html#capture-history',
+                              'r108_history_fragment_anchor')
+            result['debug']['anchor_history_visible']=[
+                {'text':n.get('text'),'bounds':n.get('bounds')}
+                for n in ui_nodes(xml) if '历史观察记录与恢复' in n.get('text','')]
         # Existing panel contains <details>历史观察记录与恢复（高级）.
         opened=None
         for i in range(15):
@@ -130,7 +156,7 @@ def execute(formal_zip,run,snapshot,state,OUT,fixture_url):
                       {'clicked':opened and opened['hit'],'last_xml_bytes':len(xml)})
         # The UI asynchronously asks background CAPTURE_TASK_LIST.
         time.sleep(4);xml=snapshot('r108_history_after_async_load')
-        request_marker='请求 '+str(len(pre['requests']))
+        request_marker='请求 '+str(pre['total_requests'])
         history_visible=(('观察任务' in xml and ('已结束' in xml or '开始时间' in xml)) or
                          ('历史任务' in xml and '请求 ' in xml))
         result['debug']['history_text_samples']=[x for x in re.findall(r'text="([^"]+)"',xml)
