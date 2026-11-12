@@ -424,6 +424,22 @@ def main():
                     'detail':json.dumps(g['detail'],ensure_ascii=False)[:1600]}
             print('R104_STRICT_REAL_EVENT_PARITY',
                 json.dumps(strict.get('status'),ensure_ascii=False),flush=True)
+            # R107: actual formal MV2 CDP response bytes, not a screenshot,
+            # url-set coverage, or page-hook-reported text. Never upload
+            # the full private export; preserve controlled localhost only.
+            sys.path.insert(0,str(Path('kiwi-r107-lab').absolute()))
+            from r107_response_body_parity import verify as r107_verify
+            body_result=r107_verify(
+                Path('/tmp/r103-export-recovered.zip'),fixture_server_log,
+                r104_start_ns,r104_end_ns,
+                OUT/'r107_formal_cdp_response_body_parity.json',
+                OUT/'r107_controlled_cdp_body_repro.zip',min_events=36)
+            for name,g in body_result['gates'].items():
+                state['gates'][name]={
+                    'status':g['status'],
+                    'detail':json.dumps(g.get('detail'),ensure_ascii=False)[:1700]}
+            print('R107_FORMAL_CDP_BYTE_PARITY',
+                json.dumps(body_result.get('summary'),ensure_ascii=False),flush=True)
         except Exception as e:
             log_gate('R104_NET_99_audit_program_error',False,repr(e))
     else:
