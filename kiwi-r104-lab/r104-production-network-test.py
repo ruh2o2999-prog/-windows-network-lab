@@ -460,6 +460,20 @@ def main():
             sys.path.insert(0,str(Path('kiwi-r109-lab').absolute()))
             from r109_history_recovery import execute as r109_execute
             r109_execute(Path('/tmp/r103-export-recovered.zip'),run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)
+            # R112: separate authentic Kiwi extension-origin OPFS test, after
+            # the existing R109/111 history recovery. This is NOT a synthetic
+            # extension and does not modify the installed MV2 product.
+            if all(state['gates'].get(k,{}).get('status')=='PASS' for k in (
+                'R109_07_historic_zip_real_adb_pull',
+                'R108_11_same_original_capture_session',
+                'R108_13_cdp_body_byte_identity')):
+                sys.path.insert(0,str(Path('kiwi-r112-lab').absolute()))
+                from r112_native_opfs_probe import execute as r112_execute
+                r112_execute(run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)
+            else:
+                state['gates']['R112_00_prior_evidence_not_ready']={
+                    'status':'NOT_RUN','detail':'Real original R109 history/CDP task verification not complete'}
+
         except Exception as e:
             log_gate('R108_99_automation_exception',False,repr(e))
     else:
