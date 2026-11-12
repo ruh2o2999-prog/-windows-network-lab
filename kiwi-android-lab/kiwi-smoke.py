@@ -167,12 +167,15 @@ def picker_diagnostic(xml):
 def canary():
     path=OUT/'Kiwi_R101_Canary_MV2.zip'
     manifest={'manifest_version':2,'name':'Kiwi R101 Probe','version':'0.0.1',
-              'description':'Authorized local emulator environment probe only',
-              'permissions':['storage'],'content_scripts':[{'matches':['https://example.com/*'],
+              'description':'Public R105 webRequest API capability probe; no private plugin code',
+              'permissions':['storage','webRequest','http://127.0.0.1:18764/*','https://example.com/*'],
+              'background':{'scripts':['background.js'],'persistent':True},
+              'content_scripts':[{'matches':['https://example.com/*','http://127.0.0.1/*'],
               'js':['probe.js'],'run_at':'document_idle'}]}
     with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as z:
         z.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False))
-        z.writestr('probe.js',"(function(){function run(){if(document.getElementById('kiwi-r102-canary-probe'))return;var el=document.createElement('div');el.id='kiwi-r102-canary-probe';el.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE';el.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:#f9efae;color:#111;padding:8px;font-size:16px';document.documentElement.appendChild(el);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run,{once:true});else run();})();")
+        z.writestr('background.js',"var r105={count:0,routes:{},statuses:{}};\nvar r105Ready=!!(chrome.webRequest && chrome.webRequest.onCompleted);\nif(r105Ready) chrome.webRequest.onCompleted.addListener(function(d){\n  if(!d.url || d.url.indexOf('http://127.0.0.1:18764/r104/api/')!==0)return;\n  r105.count++;\n  var path=d.url.split('?')[0].replace('http://127.0.0.1:18764','');\n  r105.routes[path]=(r105.routes[path]||0)+1;\n  r105.statuses[String(d.statusCode)]=(r105.statuses[String(d.statusCode)]||0)+1;\n},{urls:['http://127.0.0.1:18764/r104/api/*']});\nchrome.runtime.onMessage.addListener(function(m,sender,sendResponse){\n  if(m && m.kind==='r105_snapshot'){\n    sendResponse({count:r105.count,routes:r105.routes,statuses:r105.statuses,api:r105Ready});\n  }\n});")
+        z.writestr('probe.js',"(function(){\n  function mount(){\n    if(document.getElementById('kiwi-r105-canary-probe'))return;\n    var badge=document.createElement('div');\n    badge.id='kiwi-r105-canary-probe';\n    badge.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:#fceaa4;color:#000;padding:8px;font-size:16px';\n    badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_TRACKED_0';\n    document.documentElement.appendChild(badge);\n    function refresh(){\n      try {chrome.runtime.sendMessage({kind:'r105_snapshot'},function(data){\n        if(chrome.runtime.lastError){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_BG_ERROR';return;}\n        if(data&&data.api){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_TRACKED_'+data.count;}\n        else{badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_WEBREQUEST_UNAVAILABLE';}\n      });}catch(e){badge.textContent='R102_KIWI_CONTENT_SCRIPT_ACTIVE R105_BG_EXCEPTION';}\n    }\n    refresh();setInterval(refresh,1200);\n  }\n  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();\n})();")
     state['canary_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
     return path
 
@@ -286,6 +289,48 @@ def main():
     marker='R102_KIWI_CONTENT_SCRIPT_ACTIVE'
     log_gate('A5e_canary_script_real_page_execution',marker in xml,
              'Android Kiwi rendered a DOM element inserted by the Canary content script='+str(marker in xml))
+    # R105: independently test MV2 webRequest.onCompleted on the real Android
+    # Kiwi host. This is a public probe; it cannot close production A7.
+    import sys
+    from collections import Counter
+    server_log=OUT/'r105_host_http_truth.jsonl'
+    server_stdout=(OUT/'r105_host_stdout.log').open('w')
+    server=None
+    try:
+        server=subprocess.Popen([sys.executable,'-u','kiwi-r105-lab/network_fixture_server.py',
+            '--port','18764','--log',str(server_log)],
+            stdout=server_stdout,stderr=subprocess.STDOUT)
+        time.sleep(2)
+        rr,rev=run(['adb','reverse','tcp:18764','tcp:18764'])
+        log_gate('R105_PROBE_ADB_REVERSE',rr==0,rev)
+        rr,act=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
+            '-d','http://127.0.0.1:18764/',PKG])
+        time.sleep(26)
+        xml=snapshot('r105_real_kiwi_mv2_webrequest')
+        lines=[]
+        if server_log.exists():
+            for line in server_log.read_text().splitlines():
+                try:lines.append(json.loads(line))
+                except ValueError:pass
+        api_events=[x for x in lines if x.get('path','').startswith('/r104/api/')]
+        counts=Counter(x['path'] for x in api_events)
+        log_gate('R105_PROBE_KIWI_REAL_HTTP',rr==0 and len(api_events)>=8,
+                 'Real host observed HTTP events: '+str(dict(counts)))
+        m=re.search(r'R105_WEBREQUEST_TRACKED_(\\d+)',xml)
+        seen=int(m.group(1)) if m else 0
+        state['r105_public_mv2']={'host_events':len(api_events),'extension_ui_count':seen,
+                                 'routes':dict(counts),'purpose':'capability probe only'}
+        log_gate('R105_PROBE_MV2_WEBREQUEST_EVENTS',seen>=8,
+                 'Actual Kiwi DOM reports MV2 webRequest.onCompleted count='+str(seen))
+        log_gate('R105_PROBE_404_EVENT_SEEN',seen>=8 and
+                 counts.get('/r104/api/expected-404',0)>=2,
+                 'Server had >=2 real 404 requests and extension counted network events; exact status capture requires a separate gate')
+    finally:
+        if server:
+            server.terminate()
+            try:server.wait(timeout=5)
+            except Exception:server.kill()
+        server_stdout.close()
     state['gates']['A7_R99_production_extension']={'status':'NOT_RUN',
         'detail':'private 370KB R99 MV2 ZIP is not included in this external runner; it is not the canary'}
 
