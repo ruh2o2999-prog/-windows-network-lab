@@ -1,0 +1,1 @@
+R112 targeted original Kiwi 0.4.59-rc1 extension OPFS journal real Android synthetic A/V fMP4; kill process, re-open panel, reconstruct native OPFS bytes; R77-02 and 512MiB remain OPEN. Encrypted transport required.
