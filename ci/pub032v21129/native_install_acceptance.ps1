@@ -88,7 +88,7 @@ function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit){
   if(!$e.main_window_seen -or !$e.install_button_sent){throw "No real native GUI command was exercised: $label"}
   if($expectedExit -ne 0){
     if(!$e.failure_modal_seen -or !$e.modal_uia_ok -or $e.WF_error -ne $expectedExit){
-      throw "Installer negative test did not prove expected modal WF-$expectedExit: $label"
+      throw "Installer negative test did not prove expected modal WF-${expectedExit}: $label"
     }
   }else{
     if($e.failure_modal_seen){throw "Supposed successful installer showed failure dialog: $label"}
