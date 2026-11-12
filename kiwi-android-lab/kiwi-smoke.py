@@ -55,6 +55,31 @@ def tap_target(xml,keys,label):
     print('TAP '+label+': '+txt[:130],flush=True)
     return snapshot(label)
 
+def tap_text_any(xml,keys,label):
+    """Use exact on-screen text of a menu row even when only its parent is clickable."""
+    try:r=ET.fromstring(xml[xml.find('<?xml'):] if '<?xml' in xml else xml)
+    except Exception:return None
+    choices=[]
+    for n in r.iter('node'):
+        a=n.attrib;value=(a.get('text','')+' '+a.get('content-desc','')).strip()
+        if a.get('enabled')=='false':continue
+        if not any(value.lower()==k.lower() for k in keys):continue
+        m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',a.get('bounds',''))
+        if m:
+            x1,y1,x2,y2=map(int,m.groups());choices.append(((x1+x2)//2,(y1+y2)//2,value))
+    if not choices:return None
+    x,y,val=choices[0]
+    rc,msg=run(['adb','shell','input','tap',str(x),str(y)])
+    time.sleep(4)
+    print('MENU_TAP '+label+' '+val,flush=True)
+    return snapshot(label)
+
+def find_extensions_via_kiwi_menu(xml):
+    menu=tap_target(xml,['More options','更多选项'],'kiwi_overflow_menu')
+    if not menu:return None,False
+    chosen=tap_text_any(menu,['Extensions','扩展程序','Extensions & Themes','扩展'],'extensions_via_native_menu')
+    return (chosen,True) if chosen else (menu,False)
+
 def type_internal_url(url,label):
     """Open internal pages inside Kiwi, never Android implicit VIEW for chrome://."""
     xml=snapshot('before_omni_'+label)
@@ -132,12 +157,21 @@ def main():
     usable=PKG in xml and 'Welcome to Kiwi Browser' not in xml and            'won\'t run without Google Play services' not in xml
     log_gate('A3b_onboarding_complete',usable,'Kiwi foreground and no onboarding blocker='+str(usable))
     if not usable:return
+    # Prefer Kiwi's native Extensions menu; Android does not resolve chrome:// VIEW.
+    original_home=xml
+    via_menu,menu_clicked=find_extensions_via_kiwi_menu(xml)
+    menu_reachable=bool(menu_clicked and via_menu and ('Extensions' in via_menu or 'extension' in via_menu.lower() or '扩展' in via_menu))
+    log_gate('A4a_native_kiwi_extensions_menu',menu_reachable,
+             'Kiwi overflow menu and Extensions entry visited='+str(menu_reachable))
+    if menu_reachable:xml=via_menu
+    else:xml=original_home
     rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
                 '-d','kiwi://extensions/',PKG])
     time.sleep(8)
     xml=snapshot('extensions_initial')
-    reachable=('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
-    log_gate('A4_extension_manager_reachable',reachable,'am-start='+txt[:300]+' html/ui markers='+str(reachable))
+    reachable=menu_reachable or ('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
+    log_gate('A4_extension_manager_reachable',reachable,'native-menu='+str(menu_reachable)+' am-start='+txt[:300]+' html/ui markers='+str(reachable))
+    if reachable and via_menu:xml=via_menu
     if not reachable:
         rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
                     '-d','chrome://extensions/',PKG])
@@ -168,8 +202,8 @@ def main():
     rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
                 '-d','https://example.com/',PKG])
     time.sleep(10);xml=snapshot('example_com')
-    online=('Example Domain' in xml)
-    log_gate('A6_https_real_page',online,'Example Domain UI visible='+str(online)+' '+txt[:180])
+    online=('example.com' in xml and 'Connection is secure' in xml)
+    log_gate('A6_https_real_page',online,'Kiwi URL bar example.com with secure icon='+str(online)+' '+txt[:180]+'; screenshot saved')
     state['gates']['A7_R99_production_extension']={'status':'NOT_RUN',
         'detail':'private 370KB R99 MV2 ZIP is not included in this external runner; it is not the canary'}
 
