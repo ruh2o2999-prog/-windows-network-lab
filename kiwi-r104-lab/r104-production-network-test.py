@@ -173,9 +173,16 @@ def canary():
     with zipfile.ZipFile(source) as z:
         if z.testzip() is not None:raise RuntimeError('Formal MV2 ZIP CRC failure')
         manifest=json.loads(z.read('manifest.json'))
-    if manifest.get('manifest_version')!=2 or manifest.get('version')!='0.4.58':
+    # R110: runner version is a pinned input, not the historical v0.4.58 constant.
+    # A different version or even same-version different ZIP MUST fail closed.
+    expected_version=os.environ.get('R110_EXPECTED_VERSION','0.4.58')
+    expected_sha=os.environ.get('R110_EXPECTED_SHA256')
+    actual_sha=hashlib.sha256(source.read_bytes()).hexdigest()
+    if manifest.get('manifest_version')!=2 or manifest.get('version')!=expected_version:
         raise RuntimeError('Wrong formal extension: version or MV2 mismatch')
-    state['formal_package_sha256']=hashlib.sha256(source.read_bytes()).hexdigest()
+    if expected_sha and actual_sha!=expected_sha:
+        raise RuntimeError('Wrong formal extension: release SHA256 mismatch')
+    state['formal_package_sha256']=actual_sha
     state['formal_extension_name']=manifest['name']
     state['formal_extension_version']=manifest['version']
     state['formal_package_bytes']=source.stat().st_size
