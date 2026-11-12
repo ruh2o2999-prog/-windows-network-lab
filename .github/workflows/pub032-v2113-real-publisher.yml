@@ -1,0 +1,125 @@
+name: PUB-032 V2.11.3 real publisher GUI synthetic 34 files
+on:
+  push:
+    branches: [publisher-pub032-win-native-20261112]
+    paths:
+      - '.github/workflows/pub032-v2113-real-publisher.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  actual-publisher-v2113-synth34:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preflight synthetic-only verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force out,exchange | Out-Null
+          python -m py_compile ci/pub032v5/audit_v6_payload.py ci/pub032v5/verify_v2113.py
+          if($LASTEXITCODE -ne 0){throw 'Python verification scripts cannot compile'}
+          $os=Get-CimInstance Win32_OperatingSystem
+          Write-Host "PUB032_V5_WINDOWS_HOST=$($os.Caption);BUILD=$($os.BuildNumber)"
+          if($os.OSArchitecture -notmatch '64'){throw 'Not 64 bit'}
+      - name: Generate ephemeral cert and publish ONLY public certificate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $key=Join-Path $env:RUNNER_TEMP 'pub032v5_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'pub032v5_public.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=PUB032V5Windows/' 2>$null
+          if($LASTEXITCODE -ne 0){throw 'RSA cert generation failed'}
+          $dest="exchange/pub032v5-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $dest
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $dest
+          git commit -m "ci(pub032v5): publish one-time PUBLIC certificate for run $env:GITHUB_RUN_ID"
+          if($LASTEXITCODE -ne 0){throw 'Public certificate commit failed'}
+          git push origin HEAD:publisher-pub032-win-native-20261112
+          if($LASTEXITCODE -ne 0){throw 'Public certificate push failed'}
+          Write-Host "PUB032_V5_CERT_READY=$dest"
+      - name: Receive 24 ciphertext segments and decrypt only inside temporary Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expectedSha='f615e3224e2dc23a4dd494abe11f4f5d67221438832fabdc353f4af512b2a84e'
+          $prefix="exchange/pub032v5-run-$env:GITHUB_RUN_ID"
+          $branch='publisher-pub032-win-native-20261112'
+          $cipher=Join-Path $env:RUNNER_TEMP 'pub032v5_cipher.p7m'
+          $found=$false
+          for($attempt=0;$attempt -lt 240;$attempt++){
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if($LASTEXITCODE -ne 0){throw 'Ciphertext branch fetch failed'}
+            $all=[System.Text.StringBuilder]::new()
+            $ok=$true
+            for($i=1;$i -le 24;$i++){
+              $path=('{0}.p7m.b64.part{1:D2}' -f $prefix,$i)
+              $value=git show "origin/${branch}:$path" 2>$null
+              if($LASTEXITCODE -ne 0 -or !$value){$ok=$false;break}
+              [void]$all.Append(($value -join '').Trim())
+            }
+            if($ok){
+              [IO.File]::WriteAllBytes($cipher,[Convert]::FromBase64String($all.ToString()))
+              $found=$true
+              break
+            }
+            Start-Sleep -Seconds 5
+          }
+          if(!$found){throw 'Encrypted fixture was not delivered'}
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $plain=Join-Path $env:RUNNER_TEMP 'pub032v5_plain.zip'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip (Join-Path $env:RUNNER_TEMP 'pub032v5_public.crt') -inkey (Join-Path $env:RUNNER_TEMP 'pub032v5_private.pem') -out $plain
+          if($LASTEXITCODE -ne 0){throw 'CMS private decryption failed'}
+          $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -ne $expectedSha){throw "Fixture SHA mismatch ($digest)"}
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $target=Join-Path $env:RUNNER_TEMP 'pub032v5'
+          [IO.Compression.ZipFile]::ExtractToDirectory($plain,$target)
+          $expected=Get-Content (Join-Path $target 'expected.json') -Raw | ConvertFrom-Json
+          if($expected.expected_count -ne 34 -or $expected.genuine_P050_content_used -or $expected.genuine_V21128_content_used){throw 'Synthetic only provenance check failed'}
+          if((Get-FileHash (Join-Path $target 'publisher.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected.publisher_sha256){throw 'Publisher binary hash mismatch'}
+          @{'transmission'='CMS RSA-3072 + AES-256';'zip_sha256'=$digest;'syn_34_files'=$true;'private_source_used'=$false;'real_P050_bytes_used'=$false;'recovered_v21128'=$false} | ConvertTo-Json | Set-Content 'out/pub032_v2113_handoff.json'
+          Remove-Item -Force $plain,$cipher,(Join-Path $env:RUNNER_TEMP 'pub032v5_private.pem') -ErrorAction SilentlyContinue
+          Write-Host 'PUB032_V2113_SYNTHETIC_34_SOURCE_SECURELY_DECRYPTED'
+      - name: Actually use V2.11.3 native publisher GUI to generate Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub032v5/run_v2113_gui.ps1
+          if($LASTEXITCODE -ne 0){throw "Real publisher GUI failed exit=$LASTEXITCODE"}
+      - name: Independent readback of actual generated V6 installer 34 files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'pub032v5'
+          python ci/pub032v5/verify_v2113.py --exe 'out/PUB032_V2113_34_SYNTH_INSTALL.exe' --source-zip (Join-Path $root 'synthetic_34_input.zip') --expected (Join-Path $root 'expected.json') --report 'out/pub032_v2113_real_payload_34.json'
+          if($LASTEXITCODE -ne 0){throw 'Real generated installer does not match all 34 source assets'}
+          Write-Host 'PUB032_V2113_REAL_PUBLISHER_GENERATED_34_FILE_EXE_PAYLOAD_VERIFIED'
+          $officeFound=@(Get-ChildItem 'C:\Program Files\Microsoft Office','C:\Program Files (x86)\Microsoft Office' -Recurse -Filter EXCEL.EXE -ErrorAction SilentlyContinue | Select-Object -First 1).Count -gt 0
+          @{native_office_available=$officeFound;native_macro_business_launch='NOT_RUN';real_installer_gui_install='NOT_RUN';explanation='Publisher 34-asset GUI creation & static V6 PE readback test. Real install requires Excel and separate acceptance.'} | ConvertTo-Json | Set-Content 'out/pub032_v2113_actual_install_boundary.json'
+      - name: Remove decrypted input and preserve evidence only
+        if: always()
+        shell: pwsh
+        run: |
+          $names=@('pub032v5','pub032v5_plain.zip','pub032v5_cipher.p7m','pub032v5_private.pem')
+          foreach($n in $names){$p=Join-Path $env:RUNNER_TEMP $n;if(Test-Path $p){Remove-Item $p -Force -Recurse -ErrorAction SilentlyContinue}}
+      - name: Upload sanitized evidence (NOT publisher EXE, workbook or source)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub032-v2113-real-publisher-synthetic34-evidence
+          path: |
+            out/pub032_v2113_handoff.json
+            out/pub032_v2113_publisher_report.json
+            out/pub032_v2113_real_payload_34.json
+            out/pub032_v2113_gui_trace.json
+            out/pub032_v2113_actual_install_boundary.json
+          if-no-files-found: warn
