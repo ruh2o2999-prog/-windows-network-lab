@@ -1,0 +1,158 @@
+name: PUB-010 PUB-027 V2.11.2.9 Windows native install upgrade rollback
+on:
+  push:
+    branches: [publisher-v21129-native-install-rollback-20261112]
+    paths:
+      - '.github/workflows/pub032-v21129-install-upgrade.yml'
+      - 'ci/pub032v21129/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  pub032-real-v21129:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Inspect Windows x64 and validate actual GUI script syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force out,exchange | Out-Null
+          $tokens=$null;$parseErr=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci/pub032v21129/run_v21129_gui.ps1').Path,[ref]$tokens,[ref]$parseErr) | Out-Null
+          if($parseErr.Count){ throw "PowerShell parser rejected native GUI script: $($parseErr | Out-String)" }
+          python -m py_compile ci/pub032v21129/verify_v21129.py
+          if($LASTEXITCODE){throw 'Python payload verifier parser failure'}
+          $os=Get-CimInstance Win32_OperatingSystem
+          Write-Host "PUB032_REAL_WINDOWS_OS=$($os.Caption);BUILD=$($os.BuildNumber);ARCH=$($os.OSArchitecture)"
+          if($os.OSArchitecture -notmatch '64'){throw 'Windows is not x64'}
+      - name: Create transient RSA3072 certificate and publish ONLY public certificate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $key=Join-Path $env:RUNNER_TEMP 'pub032_v21129_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'pub032_v21129_public.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=PUB032V21129Windows/' 2>$null
+          if($LASTEXITCODE){throw 'Temporary RSA generation failure'}
+          $dest="exchange/pub032-v21129-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $dest
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $dest
+          git commit -m "ci: V2.11.2.9 public one-time cert run $env:GITHUB_RUN_ID"
+          if($LASTEXITCODE){throw 'Public certificate commit failure'}
+          git push origin HEAD:publisher-v21129-native-install-rollback-20261112
+          if($LASTEXITCODE){throw 'Public certificate push failure'}
+          Write-Host "PUB032_V21129_CERT_READY=$dest"
+      - name: Receive only CMS-encrypted private binary and real P0-50 fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $prefix="exchange/pub032-v21129-run-$env:GITHUB_RUN_ID"
+          $branch='publisher-v21129-native-install-rollback-20261112'
+          $cipher=Join-Path $env:RUNNER_TEMP 'pub032_v21129_cipher.p7m'
+          $found=$false
+          for($attempt=0;$attempt -lt 150;$attempt++){
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if($LASTEXITCODE){throw 'Cipher branch fetch failure'}
+            $joined=[System.Text.StringBuilder]::new()
+            $allPresent=$true
+            for($part=1;$part -le 10;$part++){
+              $suffix=('{0}.p7m.b64.part{1:D2}' -f $prefix,$part)
+              $piece=git show "origin/${branch}:$suffix" 2>$null
+              if($LASTEXITCODE -ne 0 -or !$piece){$allPresent=$false;break}
+              [void]$joined.Append(($piece -join '').Trim())
+            }
+            if($allPresent){
+              [IO.File]::WriteAllBytes($cipher,[Convert]::FromBase64String($joined.ToString()))
+              $found=$true
+              break
+            }
+            Start-Sleep -Seconds 5
+          }
+          if(!$found){throw 'Timed out waiting for encrypted fixture; no real EXE executed'}
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $plain=Join-Path $env:RUNNER_TEMP 'pub032_v21129_plain.zip'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip (Join-Path $env:RUNNER_TEMP 'pub032_v21129_public.crt') -inkey (Join-Path $env:RUNNER_TEMP 'pub032_v21129_private.pem') -out $plain
+          if($LASTEXITCODE){throw 'RSA-AES CMS decryption failed'}
+          $expectedPkgSha='63f34ea129876e1f23bf259fd202916fa4fa4b408261f9b09b7ff36e07bfba8c'
+          if((Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedPkgSha){throw 'Encrypted handoff plaintext archive has wrong SHA256'}
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $root=Join-Path $env:RUNNER_TEMP 'pub032v21129'
+          [IO.Compression.ZipFile]::ExtractToDirectory($plain,$root)
+          $expected=Get-Content (Join-Path $root 'expected.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($expected.version -ne 'V2.11.2.9' -or $expected.expected_count -ne 34 -or $expected.original_P050_test_fixture -ne $true){throw 'Invalid fixture provenance'}
+          if((Get-FileHash (Join-Path $root 'publisher.exe') -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'e22ec4d346994d4494974974afdbabb11015076a11ffb58160a2b65b04c5b8bf'){throw 'Wrong publisher EXE'}
+          if((Get-FileHash (Join-Path $root 'source_p050_34.zip') -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'a357affc922bcd43e59aa9ffd40652b51259c13af0f81cf1316008deb9720abc'){throw 'Wrong P0-50 fixture'}
+          @{stage='DECRYPTED_IN_EPHEMERAL_WINDOWS';version='V2.11.2.9';publisher_sha256=$expected.publisher_sha256;fixture_sha256=$expected.source_zip_sha256;fixture_files=34;archive_sha256=$expectedPkgSha;public_repository_plaintext='NONE'} |
+            ConvertTo-Json | Set-Content 'out/pub032_v21129_handoff_proof.json'
+          Remove-Item $plain,$cipher,(Join-Path $env:RUNNER_TEMP 'pub032_v21129_private.pem') -Force -ErrorAction SilentlyContinue
+          Write-Host 'PUB032_REAL_V21129_PUBLISHER_AND_34_P050_FILES_AVAILABLE_ON_NATIVE_WINDOWS'
+      - name: Run actual V2.11.2.9 Win32 GUI with original 34-file P0-50 test fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub032v21129/run_v21129_gui.ps1
+          if($LASTEXITCODE){throw "Actual V2.11.2.9 publisher GUI returned $LASTEXITCODE"}
+      - name: Independent verify actual generated install EXE payload 34 by SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Join-Path $env:RUNNER_TEMP 'pub032v21129'
+          python ci/pub032v21129/verify_v21129.py 'out/PUB032_V21129_34_REAL_P050_INSTALL.exe' (Join-Path $r 'source_p050_34.zip') (Join-Path $r 'expected.json') 'out/pub032_v21129_payload_audit.json'
+          if($LASTEXITCODE){throw 'Actual publisher generated exe did not match P0-50 source 34/34'}
+          Write-Host 'PUB032_V21129_REAL_WINDOWS_PUBLISHER_EXE_PAYLOAD_34_34_SHA256_MATCH'
+      - name: Run real V2.11.2.9 Win32 GUI again with explicit EXCLUDE 6 QA CMD option
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub032v21129/run_v21129_gui.ps1 -ExcludeQa
+          if($LASTEXITCODE){throw "Actual V2.11.2.9 publisher GUI exclude six QA returned $LASTEXITCODE"}
+      - name: Independently verify generated 28-file EXE, runtime CMD and 4 XLSX preserved
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=Join-Path $env:RUNNER_TEMP 'pub032v21129'
+          python ci/pub032v21129/verify_v21129.py 'out/PUB032_V21129_28_EXCLUDE_QA_INSTALL.exe' (Join-Path $r 'source_p050_34.zip') (Join-Path $r 'expected.json') 'out/pub032_v21129_28_payload_audit.json' --exclude-six-qa-cmd
+          if($LASTEXITCODE){throw '28-file payload does not match source minus six nominated QA CMD'}
+          Write-Host 'PUB032_V21129_REAL_WINDOWS_PUBLISHER_EXE_PAYLOAD_28_28_SHA256_MATCH'
+      - name: Native Win32 installer fresh install, upgrade backup and rollback tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub032v21129/native_install_acceptance.ps1
+          if($LASTEXITCODE -ne 0){throw 'Native installer acceptance contract did not pass'}
+          Write-Host 'PUB010_PUB027_REAL_WINDOWS_INSTALL_ACCEPTANCE_CASES_EXECUTED'
+      - name: Privacy cleanup on runner
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($n in @('pub032v21129','pub032_v21129_plain.zip','pub032_v21129_cipher.p7m','pub032_v21129_private.pem','pub032_v21129_public.crt')){
+            $p=Join-Path $env:RUNNER_TEMP $n
+            if(Test-Path $p){Remove-Item $p -Force -Recurse -ErrorAction SilentlyContinue}
+          }
+          foreach($exe in @('out/PUB032_V21129_34_REAL_P050_INSTALL.exe','out/PUB032_V21129_28_EXCLUDE_QA_INSTALL.exe')){
+            if(Test-Path $exe){Remove-Item $exe -Force -ErrorAction SilentlyContinue}
+          }
+          Get-ChildItem out -File -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "EVIDENCE_FILE=$($_.Name)" }
+      - name: Upload sanitized reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub010-pub027-v21129-install-rollback-evidence
+          path: |
+            out/pub032_v21129_handoff_proof.json
+            out/pub032_v21129_publisher_report.json
+            out/pub032_v21129_gui_trace.json
+            out/pub032_v21129_payload_audit.json
+            out/pub032_v21129_28_publisher_report.json
+            out/pub032_v21129_28_gui_trace.json
+            out/pub032_v21129_28_payload_audit.json
+            out/pub032_v21129_native_install_acceptance.json
+          if-no-files-found: warn
