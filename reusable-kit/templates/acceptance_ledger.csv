@@ -1,0 +1,4 @@
+original_id,requirement,acceptance_criteria,version_sha256,environment,run_id,operation,evidence_paths,independent_verifier,status,reason,followup
+GEN-001,Install and open APK,Real installation and screenshot,,,,,,,NOT_RUN,,
+GEN-002,Network event matching,Host ground truth matched against export,,,,,,,NOT_RUN,,
+GEN-003,Encrypted package transport,Trusted hash and per-part authentication,,,,,,,NOT_RUN,,
