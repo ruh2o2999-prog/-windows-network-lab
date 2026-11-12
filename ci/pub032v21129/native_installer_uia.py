@@ -54,6 +54,25 @@ def native_snapshot(u, pid):
     u.EnumWindows(callback, 0)
     return result
 
+def acknowledge_owned_failure_modal(u,pid):
+    """Native Win32 fallback. Click ONLY IDOK on this PID's known failure MessageBox."""
+    window=u.FindWindowW("#32770","工作平台 · 安装失败")
+    if not window:
+        return False
+    owner=ctypes.c_uint(0)
+    u.GetWindowThreadProcessId(window,ctypes.byref(owner))
+    if int(owner.value)!=int(pid):
+        return False
+    ok=u.GetDlgItem(window,1)
+    if not ok or not u.IsWindowEnabled(ok):
+        return False
+    klass=ctypes.create_unicode_buffer(90)
+    u.GetClassNameW.argtypes=[ctypes.c_void_p,ctypes.c_wchar_p,ctypes.c_int]
+    u.GetClassNameW(ok,klass,len(klass))
+    if klass.value!="Button":
+        return False
+    return bool(u.PostMessageW(ok,0x00F5,0,0)) # BM_CLICK to MessageBox IDOK
+
 def run(exe,case,out,timeout):
     u=ctypes.windll.user32
     u.FindWindowW.argtypes=[ctypes.c_wchar_p,ctypes.c_wchar_p]
@@ -65,7 +84,8 @@ def run(exe,case,out,timeout):
     u.PostMessageW.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_size_t,ctypes.c_ssize_t]
     u.PostMessageW.restype=ctypes.c_int
     report=dict(case=case,real_win32_exe=True,main_window_seen=False,install_button_sent=False,
-                failure_modal_seen=False,modal_uia_ok=False,WF_error=None,exit_code=None,
+                failure_modal_seen=False,modal_uia_ok=False,modal_win32_ok=False,
+                modal_acknowledged=False,modal_ack_method=None,WF_error=None,exit_code=None,
                 office_test_shim_only=bool(os.getenv("PUB010_TEST_OFFICE_SHIM")),
                 genuine_excel_macro_not_tested=True)
     p=None
@@ -110,7 +130,7 @@ def run(exe,case,out,timeout):
                 dlg=Desktop(backend="uia").window(title="工作平台 · 安装失败",process=p.pid)
                 present=dlg.exists(timeout=0.1)
             except Exception:present=False
-            if present and not report["modal_uia_ok"]:
+            if present and not report["modal_acknowledged"]:
                 report["failure_modal_seen"]=True
                 if modal_start is None:modal_start=time.monotonic()
                 dialog=dlg.wrapper_object()
@@ -127,10 +147,24 @@ def run(exe,case,out,timeout):
                     report["dialog_other_button_count"]=n_other
                     named[0].invoke()
                     report["modal_uia_ok"]=True
+                    report["modal_acknowledged"]=True
+                    report["modal_ack_method"]="uia_invoke"
                     closed=time.monotonic()
                 elif time.monotonic()-modal_start>10:
                     raise RuntimeError("No unique named OK/确定 in failure dialog; fail closed")
-            if report["modal_uia_ok"] and hwnd and time.monotonic()-closed>0.5:
+            # Previous L3 run proved Win32 title+PID+WF3060 are present even
+            # when UIA provider cannot discover an owner MessageBox. Use the
+            # system-native IDOK Button only after PID, caption and class checks.
+            if not report["modal_acknowledged"] and acknowledge_owned_failure_modal(u,p.pid):
+                snap=native_snapshot(u,p.pid)
+                report["failure_modal_seen"]=True
+                report["failure_modal_native_seen"]=True
+                report["WF_error"]=snap.get("status_error")
+                report["modal_win32_ok"]=True
+                report["modal_acknowledged"]=True
+                report["modal_ack_method"]="win32_pid_verified_idok_bm_click"
+                closed=time.monotonic()
+            if report["modal_acknowledged"] and hwnd and time.monotonic()-closed>0.5:
                 button=u.GetDlgItem(hwnd,203)
                 if button and u.IsWindowEnabled(button):
                     u.PostMessageW(hwnd,0x111,203,0)
