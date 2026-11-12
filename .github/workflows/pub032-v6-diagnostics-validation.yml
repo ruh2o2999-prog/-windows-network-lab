@@ -1,0 +1,45 @@
+name: PUB032 V6 diagnostic script Windows parser and fail-closed contract
+on:
+  push:
+    branches: [publisher-pub032-v6-diagnostics-20261112]
+    paths:
+      - '.github/workflows/pub032-v6-diagnostics-validation.yml'
+      - 'ci/pub032v5/run_v2113_gui.ps1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic-contract:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real Windows PowerShell parser + static safety contract (synthetic/public only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path='ci/pub032v5/run_v2113_gui.ps1'
+          $tokens=$null
+          $parseErrors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path,[ref]$tokens,[ref]$parseErrors)
+          if($parseErrors.Count -ne 0){
+            $parseErrors | ForEach-Object {Write-Host $_.ToString()}
+            throw "PowerShell parser errors: $($parseErrors.Count)"
+          }
+          $source=Get-Content -Raw $path
+          $requirements=@(
+            'function Capture-Windows',
+            'PUB032_GUI_SNAPSHOT',
+            'PUB032 unexpected visible modal',
+            'IsWindowVisible',
+            'build_button_enabled',
+            'Read-WindowText',
+            'Source zip bytes mismatch',
+            'No real generated install EXE',
+            'Never observed real published-success dialog'
+          )
+          foreach($r in $requirements){if(!$source.Contains($r)){throw "Missing diagnostic contract: $r"}}
+          if($source.Contains("if(\$w.title -match '失败|错误|不足|不支持|取消|异常')")){throw 'Legacy blind-spot modal filter remains'}
+          Write-Host 'PUB032_V6_WINDOWS_POWERSHELL_PARSE_PASS'
+          Write-Host 'PUB032_V6_ALL_MODAL_OBSERVATION_CONTRACT_PASS'
+          Write-Host 'WINDOWS_NATIVE_PUBLISHER_AND_BUSINESS_INSTALL_NOT_EXECUTED'
