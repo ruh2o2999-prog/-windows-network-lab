@@ -56,18 +56,22 @@ public static class Pub027V812Win32 {
   if($e -notin @(32,5)){throw "Unexpected locked-file error code: $e"}
   if($t.Elapsed.TotalSeconds -gt 5){throw 'Win32 lock failure did not return promptly'}
   $result.locked_move_rejected=$true
-  if(!(Test-Path $lockfile) -or (Get-FileHash $lockfile -Algorithm SHA256).Hash -ne $shaWorkbook){
-     throw 'Locked original has changed/vanished'
+  # FileShare.None correctly prevents Get-FileHash from opening the locked file.
+  # Check existence while locked; SHA256 only after releasing our own handle.
+  if(!(Test-Path -LiteralPath $lockfile) -or (Test-Path -LiteralPath $lockBackup)){
+     throw 'Locked original was moved or vanished during denied rename'
   }
-  $result.unchanged_locked_file=$true
   if(![Pub027V812Win32]::MoveFileEx($firstBackup,$first,$move)){throw 'Previously backed up file failed rollback'}
   $result.rollback_first_move_ok=$true
-  if(!(Test-Path $first) -or (Get-FileHash $first -Algorithm SHA256).Hash -ne $shaFirst -or
-     (Get-FileHash $lockfile -Algorithm SHA256).Hash -ne $shaWorkbook){
-     throw 'Original files not byte-identical after interrupted backup rollback'
+  if(!(Test-Path $first) -or (Get-FileHash $first -Algorithm SHA256).Hash -ne $shaFirst){
+     throw 'Previously moved original is not byte-identical after rollback'
   }
-  $result.rollback_original_bytes_verified=$true
   $lockedHandle.Dispose();$lockedHandle=$null
+  if((Get-FileHash $lockfile -Algorithm SHA256).Hash -ne $shaWorkbook){
+     throw 'Locked original changed after lock release'
+  }
+  $result.unchanged_locked_file=$true
+  $result.rollback_original_bytes_verified=$true
   if(![Pub027V812Win32]::MoveFileEx($lockfile,$lockBackup,$move)){throw 'Unlocked workbook failed normal rename'}
   if((Get-FileHash $lockBackup -Algorithm SHA256).Hash -ne $shaWorkbook){throw 'Unlocked file identity changed'}
   $result.post_unlock_move_ok=$true
