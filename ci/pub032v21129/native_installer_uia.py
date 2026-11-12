@@ -73,6 +73,43 @@ def acknowledge_owned_failure_modal(u,pid):
         return False
     return bool(u.PostMessageW(ok,0x00F5,0,0)) # BM_CLICK to MessageBox IDOK
 
+def acknowledge_owned_failure_modal_via_uia_handle(u,pid):
+    """Use native PID-owned HWND as the UIA entrypoint, never global title search.
+
+    Return (success, diagnostic) so failure conditions remain machine-readable.
+    """
+    diag={"found_win32_modal":False, "pid_matched":False,
+          "uia_hwnd_bound":False, "button_count":None,
+          "exact_ok_count":None, "invocation_done":False}
+    hwnd=u.FindWindowW("#32770","工作平台 · 安装失败")
+    if not hwnd:
+        return False,diag
+    diag["found_win32_modal"]=True
+    owner=ctypes.c_uint(0)
+    u.GetWindowThreadProcessId(hwnd,ctypes.byref(owner))
+    if int(owner.value)!=int(pid):
+        return False,diag
+    diag["pid_matched"]=True
+    try:
+        window=Desktop(backend="uia").window(handle=hwnd).wrapper_object()
+        if int(window.element_info.process_id)!=int(pid):
+            return False,diag
+        diag["uia_hwnd_bound"]=True
+        buttons=[b for b in window.descendants(control_type="Button")
+                 if b.is_visible() and b.is_enabled()]
+        ok=[b for b in buttons
+            if b.window_text().strip().casefold() in ("ok","确定")]
+        diag["button_count"]=len(buttons)
+        diag["exact_ok_count"]=len(ok)
+        if len(ok)!=1:
+            return False,diag
+        ok[0].invoke()
+        diag["invocation_done"]=True
+        return True,diag
+    except Exception as exc:
+        diag["uia_exception_type"]=type(exc).__name__
+        return False,diag
+
 def run(exe,case,out,timeout):
     u=ctypes.windll.user32
     u.FindWindowW.argtypes=[ctypes.c_wchar_p,ctypes.c_wchar_p]
@@ -155,15 +192,19 @@ def run(exe,case,out,timeout):
             # Previous L3 run proved Win32 title+PID+WF3060 are present even
             # when UIA provider cannot discover an owner MessageBox. Use the
             # system-native IDOK Button only after PID, caption and class checks.
-            if not report["modal_acknowledged"] and acknowledge_owned_failure_modal(u,p.pid):
-                snap=native_snapshot(u,p.pid)
-                report["failure_modal_seen"]=True
-                report["failure_modal_native_seen"]=True
-                report["WF_error"]=snap.get("status_error")
-                report["modal_win32_ok"]=True
-                report["modal_acknowledged"]=True
-                report["modal_ack_method"]="win32_pid_verified_idok_bm_click"
-                closed=time.monotonic()
+            if not report["modal_acknowledged"]:
+                did_ack,ack_diag=acknowledge_owned_failure_modal_via_uia_handle(u,p.pid)
+                if ack_diag["found_win32_modal"]:
+                    report["modal_handle_uia_diagnostic"]=ack_diag
+                if did_ack:
+                    snap=native_snapshot(u,p.pid)
+                    report["failure_modal_seen"]=True
+                    report["failure_modal_native_seen"]=True
+                    report["WF_error"]=snap.get("status_error")
+                    report["modal_uia_ok"]=True
+                    report["modal_acknowledged"]=True
+                    report["modal_ack_method"]="win32_pid_verified_handle_to_uia_invoke"
+                    closed=time.monotonic()
             if report["modal_acknowledged"] and hwnd and time.monotonic()-closed>0.5:
                 button=u.GetDlgItem(hwnd,203)
                 if button and u.IsWindowEnabled(button):
