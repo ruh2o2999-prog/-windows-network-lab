@@ -1,0 +1,30 @@
+name: R104 formal network verification source and original gate ledger archive
+on:
+  push:
+    branches: [kiwi-r104-formal-network-audit]
+    paths:
+      - '.github/workflows/kiwi-r104-source-archive.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source and five independent negative cases
+        run: |
+          python3 -m py_compile kiwi-r104-lab/*.py
+          python3 kiwi-r104-lab/test_r104_capture_reconcile.py
+      - name: Reproduce archival source and human readable gate ledger
+        run: |
+          mkdir -p out/kiwi-r104-lab out/workflows
+          cp kiwi-r104-lab/*.py kiwi-r104-lab/*.md kiwi-r104-lab/*.csv out/kiwi-r104-lab/
+          cp .github/workflows/kiwi-r104-formal-network-audit.yml .github/workflows/kiwi-r104-formal-preflight.yml out/workflows/
+          find out -type f -print0 | sort -z | xargs -0 sha256sum > out/R104_SOURCE_SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kiwi_R104_Formal_Network_Audit_Source_and_Gate_Ledger
+          path: out/
+          if-no-files-found: error
