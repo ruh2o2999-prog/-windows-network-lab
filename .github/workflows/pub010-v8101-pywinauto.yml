@@ -1,0 +1,40 @@
+name: PUB-010 V8.10.1 pywinauto alternate native modal route
+on:
+  push:
+    branches: [publisher-v21129-v8101-pywinauto-alt-20261112]
+    paths:
+      - '.github/workflows/pub010-v8101-pywinauto.yml'
+      - 'ci/pub032v21129/pywinauto_modal_smoke.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  win32-ui-auto-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tested independent Win32 automation library
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pywinauto==0.6.9
+          if($LASTEXITCODE -ne 0){throw 'pywinauto dependency missing'}
+      - name: Actually launch a controlled Win32 MessageBox and invoke its OK control
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python ci/pub032v21129/pywinauto_modal_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'UIA alternate route failed native Windows smoke'}
+      - name: Upload privacy-safe probe report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pub010-v8101-pywinauto-synthetic-dialog-evidence
+          path: out/pub010_v8101_pywinauto_smoke.json
+          if-no-files-found: warn
+      - name: Declare correct test boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'THIS_DOES_NOT_EXECUTE_REAL_INSTALLER_OR_EXCEL=true'
+          Write-Host 'ORIGINAL_PUB010_AND_PUB027_REMAIN_OPEN=true'
