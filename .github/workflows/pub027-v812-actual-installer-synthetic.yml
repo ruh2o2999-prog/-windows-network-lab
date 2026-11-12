@@ -1,0 +1,106 @@
+name: PUB-027 V8.12 Real Installer Tiny Synthetic Lock Recovery
+on:
+  push:
+    branches: [publisher-v21129-v812-lock-probe-20261113]
+    paths:
+      - '.github/workflows/pub027-v812-actual-installer-synthetic.yml'
+      - 'ci/pub010_v812/test_real_installer_synthetic_lock.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  unmodified-installer-file-transaction:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate one-use RSA3072 certificate, publish public certificate ONLY
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force exchange,out | Out-Null
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $key=Join-Path $env:RUNNER_TEMP 'pub027_v812_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'pub027_v812_public.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=PUB027V812DiagnosticWindows/' 2>$null
+          if($LASTEXITCODE){throw 'Ephemeral certificate creation failed'}
+          $dest="exchange/pub027-v812-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $dest
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $dest
+          git commit -m "ci: temporary PUBLIC certificate for V8.12 synthetic diagnostic run $env:GITHUB_RUN_ID"
+          if($LASTEXITCODE){throw 'Public certificate commit failed'}
+          git push origin HEAD:publisher-v21129-v812-lock-probe-20261113
+          if($LASTEXITCODE){throw 'Public certificate publication failed'}
+          Write-Host "PUB027_V812_PUBLIC_CERT_READY=$dest"
+      - name: Receive encrypted real installer stub plus SYNTHETIC payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $branch='publisher-v21129-v812-lock-probe-20261113'
+          $path="exchange/pub027-v812-run-$env:GITHUB_RUN_ID.p7m.b64"
+          $cipher=Join-Path $env:RUNNER_TEMP 'pub027_v812_encrypted.p7m'
+          $available=$false
+          for($attempt=0;$attempt -lt 120;$attempt++){
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if($LASTEXITCODE){throw 'Cannot fetch encrypted handoff'}
+            $blob=git show "origin/${branch}:$path" 2>$null
+            if($LASTEXITCODE -eq 0 -and $blob){
+              [IO.File]::WriteAllBytes($cipher,[Convert]::FromBase64String(($blob -join '').Trim()))
+              $available=$true
+              break
+            }
+            Start-Sleep -Seconds 1
+          }
+          if(!$available){throw 'Encrypted fixture not delivered within bounded wait'}
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $fixture=Join-Path $env:RUNNER_TEMP 'pub027_v812_fixture.exe'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip (Join-Path $env:RUNNER_TEMP 'pub027_v812_public.crt') -inkey (Join-Path $env:RUNNER_TEMP 'pub027_v812_private.pem') -out $fixture
+          if($LASTEXITCODE){throw 'RSA-AES decryption failed'}
+          $sha=(Get-FileHash $fixture -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -ne '59be9a1ba0f8a8b4de3a4559187b09f8c09e0a772eea6e8b6010f71e6ff43fec'){throw "Fixture SHA mismatch: $sha"}
+          Remove-Item $cipher,(Join-Path $env:RUNNER_TEMP 'pub027_v812_private.pem') -Force -ErrorAction SilentlyContinue
+          Write-Host 'PUB027_V812_UNMODIFIED_INSTALLER_PE_RECEIVED_ENCRYPTED_AND_VERIFIED'
+      - name: Run only actual Windows installer synthetic lock recovery (NO 34/28 full rerun)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check pywinauto==0.6.9
+          if($LASTEXITCODE){throw 'Required UI Automation dependency missing'}
+          python -m py_compile ci/pub032v21129/native_installer_uia.py ci/pub010_v812/test_real_installer_synthetic_lock.py
+          if($LASTEXITCODE){throw 'Test Python source invalid'}
+          python ci/pub010_v812/test_real_installer_synthetic_lock.py
+          if($LASTEXITCODE){throw 'Actual Windows synthetic locked-file installer path FAILED; keep original issue open'}
+      - name: Sanitize and remove transient application binary and certificate
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($name in @('pub027_v812_fixture.exe','pub027_v812_private.pem','pub027_v812_public.crt','pub027_v812_encrypted.p7m')){
+            $file=Join-Path $env:RUNNER_TEMP $name
+            if(Test-Path $file){Remove-Item $file -Force -ErrorAction SilentlyContinue}
+          }
+          Write-Host 'PRODUCT_AND_BUSINESS_BINARY_REMOVED_FROM_EPHEMERAL_RUNNER'
+      - name: Upload only sanitized Windows transaction results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub027-v812-real-installer-synthetic-locked-file
+          path: |
+            out/pub027_v812_real_installer_synthetic_lock.json
+            out/v812_fresh_synthetic_two_file.json
+            out/v812_locked_workbook_backup_failure.json
+            out/v812_post_unlock_reinstall.json
+          if-no-files-found: warn
+      - name: Correct acceptance boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'DIAGNOSTIC_ONLY=hand-built V6 synthetic contents on unmodified publisher installer stub'
+          Write-Host 'PUBLISHER_GENERATED_34_28_NOT_REPEATED=true'
+          Write-Host 'EXCEL_MACROS_NOT_TESTED=true'
+          Write-Host 'ORIGINAL_PUB010_AND_PUB027_REMAIN_OPEN=true'
