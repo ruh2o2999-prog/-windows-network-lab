@@ -115,6 +115,55 @@ def type_internal_url(url,label):
     print('OMNIBOX_NAV '+label+' '+url+' '+str((x,y)),flush=True)
     return snapshot('omni_'+label)
 
+def picker_diagnostic(xml):
+    """R102: preserve actual DocumentsUI tap result and foreground evidence."""
+    def is_picker(v):
+        return 'com.google.android.documentsui' in v or 'com.android.documentsui' in v
+    if not is_picker(xml):return xml
+    bounds=None
+    try:
+        tree=ET.fromstring(xml[xml.index('<?xml'):])
+        for n in tree.iter('node'):
+            if n.attrib.get('text')=='Kiwi_R101_Canary_MV2.zip':
+                bounds=n.attrib.get('bounds');break
+    except (ValueError,ET.ParseError):pass
+    log_gate('A5c_documentsui_file_visible',bool(bounds),str(bounds))
+    if not bounds:return xml
+    x1,y1,x2,y2=map(int,re.findall(r'\d+',bounds))
+    hits=[
+        ('title_center',((x1+x2)//2,(y1+y2)//2)),
+        ('row_left_icon',(max(75,x1-90),(y1+y2)//2)),
+        ('row_right_body',(max(x2-80,x1+35),(y1+y2)//2)),
+    ]
+    progress=[]
+    for label,(x,y) in hits:
+        rc,out=run(['adb','shell','input','tap',str(x),str(y)])
+        time.sleep(2.5)
+        xml=snapshot('r102_picker_'+label)
+        _,activities=run(['adb','shell','dumpsys','activity','activities'],timeout=35)
+        now_picker=is_picker(xml)
+        progress.append({'method':label,'x':x,'y':y,'adb_rc':rc,
+                         'documentsui_foreground':now_picker,
+                         'kiwi_visible':PKG in xml,
+                         'activity_tail':activities[-700:]})
+        print('R102_PICKER_STEP',json.dumps(progress[-1]),flush=True)
+        if not now_picker:break
+    if is_picker(xml):
+        # Try Android keyboard focus route without inventing a file-selection result.
+        for key in [20,23,66]:
+            rc,_=run(['adb','shell','input','keyevent',str(key)])
+            time.sleep(1.5)
+            xml=snapshot('r102_picker_key_'+str(key))
+            step={'method':'key_'+str(key),'adb_rc':rc,
+                  'documentsui_foreground':is_picker(xml),'kiwi_visible':PKG in xml}
+            progress.append(step)
+            print('R102_PICKER_STEP',json.dumps(step),flush=True)
+            if not is_picker(xml):break
+    state['r102_picker_trace']=progress
+    log_gate('A5d_documentsui_returned_to_kiwi',not is_picker(xml),
+             'Document selector result: '+json.dumps(progress[-2:],ensure_ascii=False)[:900])
+    return xml
+
 def canary():
     path=OUT/'Kiwi_R101_Canary_MV2.zip'
     manifest={'manifest_version':2,'name':'Kiwi R101 Probe','version':'0.0.1',
@@ -212,26 +261,18 @@ def main():
                     if not dl:
                         dl=tap_text_any(xml,['Downloads','下载'],'file_picker_downloads_row')
                     if dl:xml=dl
-                # Switch to accessible list rows rather than tapping MaterialCard
-                # preview overlays or a passive grid title in DocumentsUI.
+                # DocumentUI results are checked against the real picker activity.
                 list_view=tap_target(xml,['List view'],'file_picker_list_view')
                 if list_view:xml=list_view
-                # Grid view exposes a clickable 'Preview the file ...' overlay;
-                # that click previews rather than selecting. Choose the exact
-                # non-clickable label bounds: parent grid card handles the tap.
-                chosen=tap_text_any(xml,['Kiwi_R101_Canary_MV2.zip'],'file_pick_label')
-                if not chosen:
-                    chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip'],'file_pick_direct_fallback')
-                if not chosen:
-                    state['errors'].append('Canary missing from actual Downloads root listing; see file_picker_downloads screenshot XML')
-                if chosen:
-                    xml=chosen
+                xml=picker_diagnostic(xml)
+                if 'com.google.android.documentsui' not in xml:
                     consent=tap_target(xml,['Add extension','Install extension','Add','安装扩展','添加扩展'],'extension_confirm')
                     if consent:xml=consent
                     time.sleep(6)
                     xml=snapshot('extension_after_import')
                 else:
-                    state['errors'].append('DocumentsUI file picker did not expose the staged Canary in current listing; see screenshot and XML')
+                    snapshot('extension_after_import')
+                    state['errors'].append('R102: DocumentsUI still foreground; no file result delivered to Kiwi; see per-tap evidence')
     imported='Kiwi R101 Probe' in xml
     log_gate('A5b_canary_install_verified',imported,'name visible in extension management UI='+str(imported))
     # Use real website to check browser networking separately from extension gate.
