@@ -1,0 +1,13 @@
+﻿原编号或新增编号,当前状态,验收目标与实际观察,真实证据,保留问题及下一步
+R104-A7-NET / R101-A7f+网络完整性,PASS_Android虚拟宿主子项,真实Kiwi正式V0.4.58; 服务端36次受控真实请求=三份导出各36次; 无缺失/多余; 9个404状态一致,Run43181428878; event_exact_parity.json 8/8; basic_reconciliation.json 10/10,仅网络/导出完整性可子销；不代表全部R30/T22/T23/T42/T51整项PASS
+R106-TRACE-01 (新增验收工具问题),PASS_验收工具修复,旧Trace遍历requests+timeline误将8个请求计成16; 定向适配正式V0.4.58 Trace.requests,Commit c18d9d3 / 83fb9b04 / 6b35be50; Run43181264319; 11+7回归及本次36/36,只有这一工具缺陷可销；冻结正式插件未改动
+R106-RESP-01 / R03 / R21 / T11 / T28,NOT_RUN,36个CDP正文文件已在导出清单中出现，但未按requestId与独立服务端正文逐字节SHA核对,A7 Run43181428878 export_manifest; strict.response_bodies=NOT_VERIFIED,补正文索引与源字节核验; 排除页面自报正文伪装
+R07/R17/R26/T17/T37 (重启持久化),NOT_RUN,正式Kiwi真实后台停止/进程重启后恢复并回读完整请求和正文尚无独立运行证据,本次仅验证观察与导出; 原R103保存原编号,安排Android进程重启/页面回读/前后SHA对比和容量检查
+R94-04,NOT_RUN,512MiB以上真实MSE/Worker OPFS持久化、重启回读与视频重建未执行,status.json A7g=NOT_RUN,保持原标准; 不把网络请求成功冒充媒体成功
+R77-02,NOT_RUN,播放器身份→浏览器requestId→响应正文→文件字节/哈希未在真实并发媒体中连证,R103旧24行记录+R106本轮网络证据,取得真实播放并发、同URL歧义和身份关联证据
+R88-01,NOT_RUN,YouTube 403环境下授权访问真实流媒体下载成功及文件核验未执行,R103旧24行记录,待受控授权真实下载、音视频和文件一致性测试
+UX-06/UX-07,SUB_PASS_未销整项,真实Kiwi扩展管理和网页侧栏已验证；原生DevTools选择复制编辑导出/窗口调整尚未做G5,extensions_after_warning_ack.png; r104_during_real_observation.png,保持正式原生界面端到端验收
+F01-F15 / T01-T54,NOT_RUN_原编号全量,未本轮逐一重跑原15F与54T；R99的54复合回归非原T01-T54,R103历史24条增量台账+原V2.2两份原文,不得将本次A7网络子项替代全部原编号
+R106-UI-01 (新增待诊断),OPEN_待验证,正式Kiwi正在观察截图里请求阶段/已确认正文/浏览器下载显示0，但导出有36请求; 可能是缓存或仅CDP计数,r104_during_real_observation.png + 本轮严格对账报告,测试页面刷新/面板重新打开后实时计数并与底层会话核对
+R106-EVID-01 (新增证据完整性),OPEN_证据增强,已保存Zip哈希/CRC/目录、审计JSON/真实截图/服务端日志；原始导出ZIP仅在Runner短暂存在，未作为云端原始证据留存,R106 evidence 62 items; export_zip_manifest.json,下一轮安全地存储合成测试导出或密文以便离线重核
+R101-A4c (视觉子门),SUB_PASS_人工核查,扩展管理页和Developer mode ON及ZIP安装入口已由截图人工确认；CI status仍是PENDING_VISUAL,extensions_after_warning_ack.png; A4d=PASS,"形成独立人工截图核查记录, 不篡改CI JSON状态"
