@@ -2,6 +2,7 @@
 """R103: install actual production MV2 ZIP on real Kiwi Android; preserve each gate and failure."""
 import json, os, re, subprocess, time, zipfile, hashlib, sys, urllib.request
 from r104_capture_reconcile import reconcile
+from r104_network_strict_parity import verify as strict_parity_verify
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -411,6 +412,18 @@ def main():
             for n,v in audited['gates'].items():
                 state['gates'][n]={'status':v['status'],'detail':json.dumps(v.get('details'),ensure_ascii=False)[:1600]}
             print('R104_FORMAL_RECONCILIATION',json.dumps(audited.get('summary')),flush=True)
+            # Independent strict gate: every (route,seq) occurrence, including 404
+            # response statuses, must reconcile with the server's actual events.
+            # Existing 10 route-coverage gates are retained; they are not enough
+            # to prove complete capture and must not auto-close parent A7.
+            strict=strict_parity_verify(Path('/tmp/r103-export-recovered.zip'),
+                fixture_server_log,r104_start_ns,r104_end_ns,
+                OUT/'r104_formal_event_exact_parity.json')
+            for name,g in strict['gates'].items():
+                state['gates'][name]={'status':g['status'],
+                    'detail':json.dumps(g['detail'],ensure_ascii=False)[:1600]}
+            print('R104_STRICT_REAL_EVENT_PARITY',
+                json.dumps(strict.get('status'),ensure_ascii=False),flush=True)
         except Exception as e:
             log_gate('R104_NET_99_audit_program_error',False,repr(e))
     else:
