@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           mkdir -p c4c3f_exp
           base64 -d c4c3f_public_probe/C4C3F_public_probe.zip.b64 > c4c3f_exp/payload.zip
-          echo 'f88363957fb657f217decbb16ae6ce19ceea6244a1a137eccce7e9a9e6513b79  c4c3f_exp/payload.zip' | sha256sum -c -
+          echo '03c1a5886eedb313367ff814508577859239c75bb5fce2f3825f8c75e6164beb  c4c3f_exp/payload.zip' | sha256sum -c -
           unzip -q c4c3f_exp/payload.zip -d c4c3f_exp
           (cd c4c3f_exp && sha256sum -c SHA256SUMS.txt)
           test -s c4c3f_exp/C4C3_Android11_Research.apk
