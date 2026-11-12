@@ -2,7 +2,7 @@
 """R104 controlled HTTP fixture: real request ground truth for Kiwi Android AVD.
 No private plugin/source is served or copied. All data are public synthetic data.
 """
-import argparse, json, threading, time, urllib.parse
+import argparse, json, threading, time, urllib.parse, hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -53,7 +53,7 @@ def main():
                 body=b'';mime='image/x-icon';status=204
             else:
                 body=b'not found';mime='text/plain';status=404
-            event={'time_ns':time.time_ns(),'method':'GET','url':self.path,'path':path,'status':status,'bytes':len(body)}
+            event={'time_ns':time.time_ns(),'method':'GET','url':self.path,'path':path,'status':status,'bytes':len(body),'body_sha256':hashlib.sha256(body).hexdigest()}
             with lock:
                 with a.log.open('a',encoding='utf-8') as f:f.write(json.dumps(event,sort_keys=True)+'\n')
             self.send_response(status)
