@@ -1,0 +1,38 @@
+name: Kiwi R107 independent response body SHA audit and negative cases
+on:
+  push:
+    branches: [kiwi-r107-response-body-parity]
+    paths:
+      - 'kiwi-r107-lab/**'
+      - 'kiwi-r104-lab/controlled_fixture_server.py'
+      - 'kiwi-r104-lab/r104-production-network-test.py'
+      - '.github/workflows/kiwi-r107-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  response-body-audit-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source syntax and independent ground truth positive/negative cases
+        run: |
+          set -euo pipefail
+          python3 -m py_compile kiwi-r107-lab/r107_response_body_parity.py kiwi-r107-lab/test_r107_response_body_parity.py kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/r104-production-network-test.py
+          PYTHONPATH=kiwi-r107-lab python3 kiwi-r107-lab/test_r107_response_body_parity.py
+          PYTHONPATH=kiwi-r104-lab python3 kiwi-r104-lab/test_r104_network_strict_parity.py
+      - name: Preserve checksums; synthetic selftests are not formal product G5
+        run: |
+          mkdir -p out
+          sha256sum kiwi-r107-lab/*.py kiwi-r104-lab/controlled_fixture_server.py > out/r107_source_sha256.txt
+          echo 'R107 synthetic preflight PASS is not real Android formal A7 verdict.' > out/TEST_SCOPE.txt
+      - name: Preserve public synthetic validation sources and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r107-synthetic-preflight-source
+          path: |
+            kiwi-r107-lab/*.py
+            out/*.txt
+          if-no-files-found: warn
