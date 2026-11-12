@@ -191,7 +191,7 @@ def find_exact_ui_export(xml,expected,started_at=None):
             matches[(id(anc),i)]=(x,y,desc)
     return next(iter(matches.values())) if len(matches)==1 else None
 
-def execute(original_zip,run,snapshot,state,out,fixture_url,type_internal_url):
+def execute(original_zip,run,snapshot,state,out,fixture_url,type_internal_url,native_extensions_menu=None):
     record={'stage':'R109','scope':'unaltered MV2 V0.4.58 actual Android Kiwi','gates':{},'cdp':{},
             'source_altered':False,'media_persistence_covered':False}
     def gate(key,ok,detail):
@@ -217,7 +217,7 @@ def execute(original_zip,run,snapshot,state,out,fixture_url,type_internal_url):
         # R109 / V8.10.1 route switch after repeated direct URL failures:
         # use the ORIGINAL Kiwi Extensions > Details > Extension options.
         from r109_panel_entry_v8101 import open_original_panel,page_ok
-        xml,entry=open_original_panel(run,snapshot,type_internal_url,extension_id,fixture_url)
+        xml,entry=open_original_panel(run,snapshot,type_internal_url,extension_id,fixture_url,native_extensions_menu)
         record['original_panel_entry']=entry
         panel_valid=page_ok(xml)
         gate('R109_04_original_extension_panel_opens',panel_valid,
