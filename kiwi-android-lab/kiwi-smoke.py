@@ -212,9 +212,12 @@ def main():
                     if not dl:
                         dl=tap_text_any(xml,['Downloads','下载'],'file_picker_downloads_row')
                     if dl:xml=dl
-                chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip','Kiwi R101 Canary'],'file_pick_direct')
+                # Grid view exposes a clickable 'Preview the file ...' overlay;
+                # that click previews rather than selecting. Choose the exact
+                # non-clickable label bounds: parent grid card handles the tap.
+                chosen=tap_text_any(xml,['Kiwi_R101_Canary_MV2.zip'],'file_pick_label')
                 if not chosen:
-                    chosen=tap_text_any(xml,['Kiwi_R101_Canary_MV2.zip'],'file_pick_label')
+                    chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip'],'file_pick_direct_fallback')
                 if not chosen:
                     state['errors'].append('Canary missing from actual Downloads root listing; see file_picker_downloads screenshot XML')
                 if chosen:
