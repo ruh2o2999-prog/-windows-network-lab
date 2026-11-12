@@ -1,0 +1,152 @@
+name: PUB-032 Windows old native installer encrypted handoff
+on:
+  push:
+    branches: [publisher-pub032-win-native-20261112]
+    paths:
+      - '.github/workflows/pub032-windows-secure-real-install.yml'
+permissions:
+  contents: write
+jobs:
+  pub032-secure-win:
+    if: github.repository == 'ruh2o2999-prog/-windows-network-lab'
+    runs-on: windows-2022
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate ephemeral RSA3072 cert and publish PUBLIC cert only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force 'out','exchange' | Out-Null
+          $openssl = 'C:\Program Files\Git\usr\bin\openssl.exe'
+          if (!(Test-Path $openssl)) { $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source }
+          "OPENSSL_PATH=$openssl" | Out-File 'out/host_environment.txt'
+          $key = Join-Path $env:RUNNER_TEMP 'pub032_ephemeral_private.pem'
+          $cert = Join-Path $env:RUNNER_TEMP 'pub032_ephemeral_public.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=PUB032WindowsEphemeral/' 2>$null
+          if ($LASTEXITCODE -ne 0) { throw 'Certificate generation failed' }
+          $name = "exchange/pub032-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $name
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $name
+          git commit -m "ci(pub032): one-time PUBLIC cert for run $env:GITHUB_RUN_ID"
+          if ($LASTEXITCODE -ne 0) { throw 'Public cert commit failed' }
+          git push origin HEAD:publisher-pub032-win-native-20261112
+          if ($LASTEXITCODE -ne 0) { throw 'Public cert publish failed' }
+          Write-Host "PUB032_CERT_READY=$name"
+      - name: Receive ciphertext segments and decrypt on transient Windows runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expectedZipSha = 'ea5808932073a92468ef715c69c8bc6d2a5927aee92ae11ef02d66f02443de91'
+          $prefix = "exchange/pub032-run-$env:GITHUB_RUN_ID"
+          $branch = 'publisher-pub032-win-native-20261112'
+          $cipherText = Join-Path $env:RUNNER_TEMP 'pub032_payload.b64'
+          $found = $false
+          for ($i=0; $i -lt 130; $i++) {
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if ($LASTEXITCODE -ne 0) { throw 'Failed git fetch' }
+            $parts = @()
+            $ok = $true
+            for ($k=1; $k -le 4; $k++) {
+              $partPath = "$prefix.p7m.b64.part$k"
+              $part = git show "origin/${branch}:$partPath" 2>$null
+              if ($LASTEXITCODE -ne 0 -or !$part) { $ok=$false; break }
+              $parts += ($part -join "`n")
+            }
+            if ($ok) { [IO.File]::WriteAllText($cipherText, ($parts -join ''), [Text.Encoding]::ASCII); $found=$true; break }
+            Start-Sleep -Seconds 5
+          }
+          if (!$found) { throw 'Ciphertext not delivered before deadline; no private asset used' }
+          $cipher = Join-Path $env:RUNNER_TEMP 'pub032_payload.p7m'
+          [IO.File]::WriteAllBytes($cipher, [Convert]::FromBase64String(([IO.File]::ReadAllText($cipherText)).Trim()))
+          $openssl = 'C:\Program Files\Git\usr\bin\openssl.exe'
+          if (!(Test-Path $openssl)) { $openssl = (Get-Command openssl.exe -ErrorAction Stop).Source }
+          $zipPath = Join-Path $env:RUNNER_TEMP 'pub032_decrypted.zip'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip (Join-Path $env:RUNNER_TEMP 'pub032_ephemeral_public.crt') -inkey (Join-Path $env:RUNNER_TEMP 'pub032_ephemeral_private.pem') -out $zipPath
+          if ($LASTEXITCODE -ne 0) { throw 'Decrypt failed' }
+          $sha=(Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne $expectedZipSha) { throw 'Decrypted payload SHA256 mismatch' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::OpenRead($zipPath).Dispose()
+          $sandbox=Join-Path $env:RUNNER_TEMP 'pub032_real_installer'
+          New-Item -ItemType Directory -Force $sandbox | Out-Null
+          [IO.Compression.ZipFile]::ExtractToDirectory($zipPath,$sandbox)
+          $expected=Get-Content (Join-Path $sandbox 'expected.json') -Raw | ConvertFrom-Json
+          if ($expected.product_id -ne 'name:PUB032NativeSmoke' -or $expected.files.Count -ne 3) { throw 'Fixture manifest invalid' }
+          @{encryption='OpenSSL CMS RSA3072 + AES256'; zip_sha256=$sha; zip_integrity='PASS'; file_count=$expected.files.Count; source='V2.11.2.0 OLD test-only synthetic package'} | ConvertTo-Json | Set-Content 'out/pub032_handoff.json'
+          Remove-Item -Force $cipherText,$cipher,(Join-Path $env:RUNNER_TEMP 'pub032_ephemeral_private.pem') -ErrorAction SilentlyContinue
+          Write-Host 'PUB032_SECURE_HANDOFF_DECRYPTED_AND_SHA256_VERIFIED'
+      - name: Execute historical genuine Win32 installer and verify actual output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sandbox=Join-Path $env:RUNNER_TEMP 'pub032_real_installer'
+          $exe=Join-Path $sandbox 'installer.exe'
+          $expected=Get-Content (Join-Path $sandbox 'expected.json') -Raw | ConvertFrom-Json
+          if (!(Test-Path $exe)) { throw 'Missing historical installer PE' }
+          $target=Join-Path $env:LOCALAPPDATA 'WorkPlatformApps\PUB032NativeSmoke'
+          if (Test-Path $target) { throw 'Target is not a clean install directory' }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class PUB032Win {
+            [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+            public static extern IntPtr FindWindow(string className,string windowTitle);
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern IntPtr SendMessage(IntPtr hWnd,uint msg,IntPtr wParam,IntPtr lParam);
+          }
+          '@
+          $p = Start-Process -FilePath $exe -PassThru
+          $h = [IntPtr]::Zero
+          for ($i=0; $i -lt 45; $i++) {
+            $h = [PUB032Win]::FindWindow('WorkPlatformInstaller',$null)
+            if ($h -ne [IntPtr]::Zero) { break }
+            if ($p.HasExited) { throw "Installer exited before GUI, code=$($p.ExitCode)" }
+            Start-Sleep -Seconds 1
+          }
+          if ($h -eq [IntPtr]::Zero) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Installer GUI absent on hosted runner' }
+          Write-Host 'PUB032_PRODUCT_INSTALLER_WINDOW_FOUND'
+          [void][PUB032Win]::SendMessage($h,0x0111,[IntPtr]203,[IntPtr]::Zero)
+          $p.WaitForExit(90000) | Out-Null
+          if (!$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Installer timed out' }
+          if ($p.ExitCode -ne 0) { throw "Historical installer failed exitcode=$($p.ExitCode)" }
+          foreach ($f in $expected.files) {
+            $rel=$f.relative_path.Replace('/', [IO.Path]::DirectorySeparatorChar)
+            $dest=Join-Path $target $rel
+            if (!(Test-Path $dest)) { throw "Installer omitted file: $rel" }
+            $got=(Get-FileHash $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($got -ne $f.sha256) { throw "Installed bytes differ: $rel" }
+          }
+          $report = [ordered]@{
+            scope='Real Windows OLD V2.11.2.0 installer on SYNTHETIC three-file payload - NOT V2.11.2.8'
+            windows=(Get-CimInstance Win32_OperatingSystem).Caption
+            old_installer_gui_window_found=$true
+            old_installer_exit_code=$p.ExitCode
+            installed_file_count=$expected.files.Count
+            all_installed_sha256_match=$true
+            publisher_v21128_tested=$false
+            real_p050_business_data_tested=$false
+            upgrade_and_rollback_tested=$false
+          }
+          $report | ConvertTo-Json -Depth 5 | Set-Content 'out/pub032_actual_installer_report.json' -Encoding UTF8
+          Write-Host 'PUB032_OLD_INSTALLER_REAL_WINDOWS_INSTALL_PASS'
+      - name: Remove all transient decrypted files
+        if: always()
+        shell: pwsh
+        run: |
+          $paths=@('pub032_real_installer','pub032_decrypted.zip','pub032_ephemeral_private.pem','pub032_payload.p7m','pub032_payload.b64')
+          foreach ($x in $paths) { $p=Join-Path $env:RUNNER_TEMP $x; if (Test-Path $p) { Remove-Item -LiteralPath $p -Force -Recurse -ErrorAction SilentlyContinue } }
+      - name: Upload evidence only (never plaintext package)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub032-secure-windows-old-installer-evidence
+          path: |
+            out/pub032_handoff.json
+            out/pub032_actual_installer_report.json
+            out/host_environment.txt
+          if-no-files-found: warn
