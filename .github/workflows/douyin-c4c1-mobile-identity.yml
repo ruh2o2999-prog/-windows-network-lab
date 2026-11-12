@@ -1,0 +1,53 @@
+name: Douyin C4C1 Android11 Mobile Profile Identity Evidence
+on:
+  push:
+    branches: [douyin-c4c1-mobile-identity-20261112]
+    paths:
+      - '.github/workflows/douyin-c4c1-mobile-identity.yml'
+      - 'c4c1_public_probe/C4C1_public_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android11-c4c1-identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore checksum-pinned public research probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4c1_exp
+          base64 --decode c4c1_public_probe/C4C1_public_probe.zip.b64 > c4c1_exp/checkpoint.zip
+          echo '06b761cf586a7ae174c38b735ddfd330726299f303d3d6f076e2cc9ac2e344c8  c4c1_exp/checkpoint.zip' | sha256sum -c -
+          unzip -q c4c1_exp/checkpoint.zip -d c4c1_exp
+          (cd c4c1_exp && sha256sum -c SHA256SUMS.txt)
+          bash -n c4c1_exp/run_android11.sh
+          test -s c4c1_exp/C4C1_Android11_Research.apk
+      - name: Enable hardware virtualization
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Execute Android 11 first-party profile evidence (mobile and desktop)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash c4c1_exp/run_android11.sh
+      - name: Preserve Android evidence even if test fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4c1-android11-mobile-identity-evidence
+          path: c4c1_results/
+          retention-days: 14
+          if-no-files-found: warn
