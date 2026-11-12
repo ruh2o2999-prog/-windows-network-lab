@@ -29,6 +29,8 @@ public static class PUB032V5Win {
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool SetWindowText(IntPtr h,string s);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h,uint msg,IntPtr wp,IntPtr lp);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool PostMessage(IntPtr h,uint msg,IntPtr wp,IntPtr lp);
+  [DllImport("user32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool EnumChildWindows(IntPtr parent,EnumCallback cb,IntPtr extra);
+  [DllImport("user32.dll",SetLastError=true)] public static extern int GetDlgCtrlID(IntPtr child);
 }
 '@
 function List-Windows($process){
@@ -64,6 +66,28 @@ try {
   }
   if($main -eq [IntPtr]::Zero){throw 'Publisher real GUI not found by EnumThreadWindows'}
   $trace.Add(@{kind='publisher_window_found';main_hwnd=$main.ToInt64()})
+  # Wait for WM_CREATE to finish creating real controls: top-level HWND can exist earlier.
+  $required=@(103,105,106,107,112,119,121)
+  $missing=$required
+  for($ready=0;$ready -lt 45;$ready++){
+    $missing=@($required | Where-Object { [PUB032V5Win]::GetDlgItem($main,[int]$_) -eq [IntPtr]::Zero })
+    if($missing.Count -eq 0){break}
+    Start-Sleep -Seconds 1
+  }
+  $trace.Add(@{kind='publisher_control_ready_scan';wait_cycles=$ready;missing_ids=@($missing)})
+  if($missing.Count -ne 0){
+    $childHandles=[System.Collections.Generic.List[System.IntPtr]]::new()
+    $cb=[PUB032V5Win+EnumCallback]{param([IntPtr]$h,[IntPtr]$extra) $childHandles.Add($h);return $true}
+    [void][PUB032V5Win]::EnumChildWindows($main,$cb,[IntPtr]::Zero)
+    $children=@()
+    foreach($h in $childHandles){
+      $cc=[System.Text.StringBuilder]::new(256)
+      [void][PUB032V5Win]::GetClassName($h,$cc,$cc.Capacity)
+      $children+=@{id=[PUB032V5Win]::GetDlgCtrlID($h);class=$cc.ToString();handle=$h.ToInt64()}
+    }
+    $trace.Add(@{kind='publisher_child_window_diagnostics';controls=$children;count=$children.Count})
+    throw "Publisher controls incomplete after 45 seconds. Missing=$($missing -join ',') ChildCount=$($children.Count)"
+  }
   Set-Edit $main 105 'PUB032_Synth34'
   Set-Edit $main 121 'PUB032_Synth34'
   Set-Edit $main 106 '0.1.0'
