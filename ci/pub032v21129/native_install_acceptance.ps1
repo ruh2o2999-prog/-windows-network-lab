@@ -9,8 +9,10 @@ New-Item -ItemType Directory -Path $out -Force | Out-Null
 $pkg34=Join-Path $out 'PUB032_V21129_34_REAL_P050_INSTALL.exe'
 $pkg28=Join-Path $out 'PUB032_V21129_28_EXCLUDE_QA_INSTALL.exe'
 $target=Join-Path $env:LOCALAPPDATA 'Programs\PUB032_P050_Test'
-$excelStub=Join-Path $env:RUNNER_TEMP 'WF_TestOnly_Office15'
-$regPath='HKCU:\SOFTWARE\Microsoft\Office\15.0\Excel\InstallRoot'
+$excelStub=Join-Path $env:RUNNER_TEMP 'WF_TestOnly\Office15'
+# Real installer checks App Paths HKCU/HKLM, but Office\InstallRoot ONLY HKLM.
+# Do not fabricate an unavailable Office service. This shim is only a controlled path-gate test.
+$regPath='HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\excel.exe'
 $results=[System.Collections.Generic.List[object]]::new()
 $script:acceptanceError=''
 $QA=@('RUN_P043_ALL_WIN7.cmd','RUN_P043_WIN7.cmd','RUN_P046_ALL_WIN7.cmd','RUN_P047_ALL_WIN7.cmd','RUN_P050_ALL_WIN7.cmd','RUN_P050_FORM_ONLY.cmd')
@@ -28,6 +30,9 @@ public static class NativeWFInstallerTest {
   [DllImport("user32.dll",EntryPoint="GetWindowTextW", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd,StringBuilder sb,int cap);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr GetDlgItem(IntPtr hwnd,int id);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr wp,IntPtr lp);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hwnd,uint msg,IntPtr wp,IntPtr lp);
+  [DllImport("user32.dll",SetLastError=true)] public static extern bool EnumChildWindows(IntPtr hwnd,EnumCallback cb,IntPtr arg);
+  [DllImport("user32.dll",SetLastError=true)] public static extern int GetDlgCtrlID(IntPtr hwnd);
   [DllImport("user32.dll",SetLastError=true)] public static extern bool IsWindowEnabled(IntPtr hwnd);
 }
 '@
@@ -44,10 +49,29 @@ function Enum-Windows($p){
   }
   return @($rows)
 }
+function Capture-FailureModal([IntPtr]$dialog,[string]$label){
+  $handles=[System.Collections.Generic.List[IntPtr]]::new()
+  $cb=[NativeWFInstallerTest+EnumCallback]{param([IntPtr]$h,[IntPtr]$arg) $handles.Add($h);return $true}
+  [void][NativeWFInstallerTest]::EnumChildWindows($dialog,$cb,[IntPtr]::Zero)
+  $children=@()
+  foreach($h in $handles){
+    $buf=[System.Text.StringBuilder]::new(1800)
+    [void][NativeWFInstallerTest]::GetWindowText($h,$buf,$buf.Capacity)
+    $txt=$buf.ToString()
+    if($txt.Length -gt 800){$txt=$txt.Substring(0,800)}
+    $children+=@{id=[NativeWFInstallerTest]::GetDlgCtrlID($h);text=$txt}
+  }
+  $output=@{case=$label;kind='real_installer_failure_dialog';children=$children}
+  $safeName=$label -replace '[^a-zA-Z0-9_\-]','_'
+  $output | ConvertTo-Json -Depth 7 | Set-Content (Join-Path $out "pub010_modal_$safeName.json") -Encoding utf8
+  Write-Host "INSTALL_FAILURE_DIALOG_CAPTURED $label child_count=$($children.Count)"
+  return $children
+}
 function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit) {
   if(!(Test-Path $path)){throw "Missing real installer: $label"}
   $proc=Start-Process -FilePath $path -PassThru
   $clicked=$false;$errorSeen=$false;$errorTitle='';$closeSent=$false;$lastWindows=@()
+  $script:modalLogged=$false
   try{
     for($i=0;$i -lt 135;$i++){
       $proc.Refresh()
@@ -68,7 +92,14 @@ function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit) {
         if($w.title -eq '工作平台 · 安装失败'){
           if(!$errorSeen){Write-Host "INSTALL_MODAL_DETECTED $label title=$($w.title)"}
           $errorSeen=$true;$errorTitle=$w.title
-          [void][NativeWFInstallerTest]::PostMessage($w.h,0x0111,[IntPtr]1,[IntPtr]::Zero)
+          if(!$script:modalLogged){[void](Capture-FailureModal $w.h $label);$script:modalLogged=$true}
+          # BM_CLICK acts on the actual MessageBox IDOK BUTTON. A WM_COMMAND
+          # sent to the modal's parent is not equivalent and previously hung.
+          $button=[NativeWFInstallerTest]::GetDlgItem($w.h,1)
+          if($button -eq [IntPtr]::Zero){throw "Failure modal has no IDOK button: $label"}
+          if(![NativeWFInstallerTest]::PostMessage($button,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)){
+            throw "Failed to deliver BM_CLICK to actual modal button: $label"
+          }
         }else{throw "Unexpected installer modal for $label; title '$($w.title)' not approved"}
       }
       # Do not close owner while modal is active; show_failure() sets finished
@@ -153,7 +184,10 @@ try{
   New-Item -ItemType Directory -Force $excelStub | Out-Null
   Copy-Item (Join-Path $env:WINDIR 'System32\notepad.exe') (Join-Path $excelStub 'EXCEL.EXE') -ErrorAction Stop
   New-Item -Path $regPath -Force | Out-Null
-  New-ItemProperty -Path $regPath -Name Path -Value ($excelStub + '\') -PropertyType String -Force | Out-Null
+  # The App Paths default value is exactly what resolve_excel() reads.
+  Set-Item -Path $regPath -Value (Join-Path $excelStub 'EXCEL.EXE')
+  $readback=(Get-Item -Path $regPath).GetValue('')
+  if($readback -ne (Join-Path $excelStub 'EXCEL.EXE')){throw 'Office test shim App Paths registry readback failed'}
   Run-NativeInstaller $pkg28 'fresh28_native_install_office_presence_simulated' 0
   [void](Verify-Files 28 'fresh28_disk_sha' $false)
   $userData=Snapshot-UserData
