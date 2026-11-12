@@ -4,7 +4,7 @@ import ctypes,json,os,subprocess,sys,time
 from pathlib import Path
 from pywinauto import Desktop
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"pub032v21129"))
-from native_installer_uia import native_snapshot
+from native_installer_uia import native_snapshot, acknowledge_owned_failure_modal
 out=Path("out/pub010_v812_modal_snapshot_smoke.json")
 p=None
 result={"scope":"Controlled Win32 MessageBox only; not product installer","passed":False}
@@ -31,17 +31,14 @@ try:
     if other["failure_dialog_native"]:
         raise RuntimeError("Cross-process window was mistaken for an owned modal")
     result["foreign_pid_rejected"]=True
-    dlg=Desktop(backend="uia").window(title="工作平台 · 安装失败",process=p.pid)
-    window=dlg.wrapper_object()
-    buttons=[b for b in window.descendants(control_type="Button")
-             if b.is_visible() and b.is_enabled()
-             and b.window_text().strip().casefold() in ("ok","确定")]
-    if len(buttons)!=1:raise RuntimeError("Not exactly one OK button in isolated dialog")
-    buttons[0].invoke()
-    if p.wait(timeout=7)!=0:raise RuntimeError("Window did not exit cleanly after invoking OK")
-    result["uia_ok_invocation_pass"]=True
+    # Exercise the exact known-error modal fallback used by the product driver.
+    # Never click a foreign PID or a different dialog caption.
+    if not acknowledge_owned_failure_modal(u,p.pid):
+        raise RuntimeError("Native PID/title/IDOK Button validation or BM_CLICK failed")
+    if p.wait(timeout=7)!=0:raise RuntimeError("Native IDOK click did not close the controlled dialog")
+    result["native_pid_scoped_idok_bm_click_pass"]=True
     result["passed"]=True
-    print("PUB010_V812_WIN32_MODAL_SNAPSHOT_UIA_INVOKE_PASS")
+    print("PUB010_V812_WIN32_MODAL_IDOK_BMCLICK_PASS")
 except Exception as e:
     result["error"]=type(e).__name__+": "+str(e)[:180]
     raise
