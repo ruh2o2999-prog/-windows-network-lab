@@ -1,4 +1,4 @@
-name: PUB-010 PUB-027 V2.11.2.9 pywinauto native install upgrade rollback round 2
+name: PUB-010 PUB-027 V2.11.2.9 pywinauto native installer round 3
 on:
   push:
     branches: [publisher-v21129-pub010-uia-realinstall-20261112]
@@ -26,6 +26,15 @@ jobs:
           if($parseErr.Count){ throw "PowerShell parser rejected native GUI script: $($parseErr | Out-String)" }
           python -m py_compile ci/pub032v21129/verify_v21129.py
           if($LASTEXITCODE){throw 'Python payload verifier parser failure'}
+          # V8.10.1: syntax-check ALL actual installer scripts BEFORE ephemeral data transfer.
+          foreach($scriptFile in @('ci/pub032v21129/native_install_acceptance.ps1','ci/pub032v21129/run_v21129_gui.ps1')){
+            $tokens=$null;$parseIssues=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $scriptFile).Path,[ref]$tokens,[ref]$parseIssues) | Out-Null
+            if($parseIssues.Count){throw "Windows acceptance script parser failed: $scriptFile | $($parseIssues | Out-String)"}
+          }
+          python -m py_compile ci/pub032v21129/native_installer_uia.py
+          if($LASTEXITCODE){throw 'Real installer Python driver parser failure'}
+          Write-Host 'PUB010_ALL_POWERSHELL_AND_PYTHON_PREFLIGHT_PASS'
           $os=Get-CimInstance Win32_OperatingSystem
           Write-Host "PUB032_REAL_WINDOWS_OS=$($os.Caption);BUILD=$($os.BuildNumber);ARCH=$($os.OSArchitecture)"
           if($os.OSArchitecture -notmatch '64'){throw 'Windows is not x64'}
