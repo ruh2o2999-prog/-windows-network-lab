@@ -42,6 +42,13 @@ jobs:
           script: |
             python3 kiwi-android-lab/kiwi-smoke.py
             python3 kiwi-r104-lab/fixture_probe.py
+      - name: Preserve exact R104 verifier source and checksums
+        if: always()
+        run: |
+          mkdir -p out/r104_verifier_source
+          cp kiwi-r104-lab/*.py out/r104_verifier_source/
+          cp .github/workflows/kiwi-r104-network-fixture.yml out/r104_verifier_source/
+          sha256sum out/r104_verifier_source/* > out/r104_verifier_sha256.txt
       - name: Preserve raw browser screenshots, fixture server receipts and gate status
         if: always()
         uses: actions/upload-artifact@v4
