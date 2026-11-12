@@ -35,7 +35,7 @@ try{
       if($b.ToString() -ne 'PUB010-BMCLICK-SMOKE'){continue}
       $found=$true
       $ok=[ModalSmoke]::GetDlgItem($w,1)
-      if($ok -eq [IntPtr]::Zero){throw 'Dialog IDOK button not found'}
+      if($ok -eq [IntPtr]::Zero){continue} # HWND visible before child controls are initialized
       if(![ModalSmoke]::PostMessage($ok,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)){throw 'BM_CLICK could not be posted'}
       $clicked=$true
       break
