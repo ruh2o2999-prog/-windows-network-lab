@@ -1,0 +1,133 @@
+name: Kiwi R115 real webpage MSE WAL dual-backend UI evidence
+on:
+  push:
+    branches: [kiwi-r115-mse-wal-ui]
+    paths:
+      - 'kiwi-r115-lab/trigger/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  kiwi-production-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preflight original scripts and R115 media probe
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q websocket-client==1.8.0
+          python3 -m py_compile kiwi-r115-lab/r115_fixture_server.py kiwi-r115-lab/r115_native_mse_endtoend.py kiwi-r114-lab/r114_native_wal_probe.py kiwi-r112-lab/r112_native_opfs_probe.py kiwi-r109-lab/r109_history_recovery.py kiwi-r108-lab/r108_restart_history.py kiwi-r108-lab/r108_offline_recovery_parity.py kiwi-r107-lab/r107_response_body_parity.py kiwi-r107-lab/test_r107_response_body_parity.py kiwi-android-lab/download_kiwi.py kiwi-r104-lab/r104-production-network-test.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py
+          mkdir -p out
+          python3 kiwi-android-lab/download_kiwi.py
+          python3 - <<'PY_R115'
+          from pathlib import Path
+          p=Path('kiwi-r104-lab/r104-production-network-test.py')
+          s=p.read_text(encoding='utf8')
+          needle='                r112_execute(run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)'
+          extra="\n".join([
+            "                sys.path.insert(0,str(Path('kiwi-r114-lab').absolute()))",
+            "                from r114_native_wal_probe import execute as r114_execute",
+            "                r114_execute(run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)",
+            "                sys.path.insert(0,str(Path('kiwi-r115-lab').absolute()))",
+            "                from r115_native_mse_endtoend import execute as r115_execute",
+            "                r115_execute(run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)"])
+          assert s.count(needle)==1,'R115 original runner seam changed; refuse ungrounded patch'
+          p.write_text(s.replace(needle,needle+'\n'+extra),encoding='utf8')
+          print('R115_RUNNER_SEAM_PATCH_PASS')
+          PY_R115
+      - name: Publish one-time receiver certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:3072 -keyout /tmp/r103-private-key.pem -out /tmp/r103-certificate.pem -sha256 -days 1 -nodes -subj '/CN=KiwiR115Ephemeral/' >/dev/null 2>&1
+          chmod 600 /tmp/r103-private-key.pem
+          mkdir -p exchange
+          cp /tmp/r103-certificate.pem "exchange/r115-run-${GITHUB_RUN_ID}.crt"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "exchange/r115-run-${GITHUB_RUN_ID}.crt"
+          git commit -m "ci(r115): one-time receiver certificate run ${GITHUB_RUN_ID}"
+          git push origin HEAD:kiwi-r115-mse-wal-ui
+          echo "R115_PUBLIC_CERT_READY=exchange/r115-run-${GITHUB_RUN_ID}.crt"
+      - name: Receive session ciphertext, decrypt on ephemeral runner only
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="exchange/r115-run-${GITHUB_RUN_ID}.p7m.b64"
+          FOUND=0
+          for attempt in $(seq 1 180); do
+            git fetch -q origin '+refs/heads/kiwi-r115-mse-wal-ui:refs/remotes/origin/kiwi-r115-mse-wal-ui'
+            if git show "origin/kiwi-r115-mse-wal-ui:${NAME}" > /tmp/r103-package.p7m.b64 2>/dev/null; then
+              FOUND=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$FOUND" != 1 ]; then echo 'R115_PRIVATE_TRANSFER_TIMEOUT'; exit 23; fi
+          base64 -d /tmp/r103-package.p7m.b64 > /tmp/r103-package.p7m
+          openssl cms -decrypt -binary -inform DER -in /tmp/r103-package.p7m -recip /tmp/r103-certificate.pem -inkey /tmp/r103-private-key.pem -out /tmp/kiwi-r104-production.zip
+          python3 - <<'PY'
+          import zipfile,hashlib,json
+          p='/tmp/kiwi-r104-production.zip'
+          with zipfile.ZipFile(p) as z:
+            assert z.testzip() is None
+            m=json.loads(z.read('manifest.json'))
+            assert m['manifest_version']==2 and m['version']=='0.4.59' and m.get('version_name','').startswith('0.4.59-rc3-r115')
+          expected='1612cbb6a42c97a9f438e8610eaa3b0a52b2f869b31a454694372de249dd820a'
+          assert hashlib.sha256(open(p,'rb').read()).hexdigest()==expected
+          report={'source':'R115 encrypted session-specific MV2 archive','sha256':expected,'bytes':__import__('os').path.getsize(p),'version':m['version'],'name':m['name']}
+          open('out/formal_package_provenance.json','w').write(json.dumps(report,ensure_ascii=False,indent=2))
+          print('R115_DECRYPTED_CRC_SHA_PINNED',json.dumps(report,ensure_ascii=False))
+          PY
+          rm -f /tmp/r103-package.p7m /tmp/r103-package.p7m.b64
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -la /dev/kvm || true
+      - name: Android11 official Kiwi with synthetic webpage MSE appendBuffer
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          R103_PRODUCTION_ZIP: /tmp/kiwi-r104-production.zip
+          R110_EXPECTED_VERSION: '0.4.59'
+          R110_EXPECTED_SHA256: 1612cbb6a42c97a9f438e8610eaa3b0a52b2f869b31a454694372de249dd820a
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-r104-lab/r104-production-network-test.py
+      - name: R111 archive original test task ZIP bytes as encrypted evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 kiwi-r110-lab/r111_archive_android_exports.py \
+            --before /tmp/r103-export-recovered.zip \
+            --after /tmp/r108-real-post-restart-historical.zip \
+            --out out/r111_secure_raw_exports \
+            --cert kiwi-r110-lab/certs/r111_receiver_public.crt \
+            --expected-cert-sha 8656cbdbb793f979cc4b9c5cd9ccbb9486199d3a0a9d345476fee8e6330e1b36 \
+            --status out/status.json \
+            --before-manifest out/r103_export_zip_manifest.json \
+            --after-manifest out/r108_historical_real_download_manifest.json \
+            --verifier kiwi-r108-lab/r108_offline_recovery_parity.py \
+            --run-id "${GITHUB_RUN_ID}"
+          test -s out/r111_secure_raw_exports/R111_android_real_before.zip.p7m
+          test -s out/r111_secure_raw_exports/R111_android_real_historical.zip.p7m
+      - name: Erase ephemeral private package, keys and raw task exports
+        if: always()
+        run: rm -f /tmp/kiwi-r104-production.zip /tmp/r103-private-key.pem /tmp/r103-certificate.pem /tmp/r103-export-recovered.zip /tmp/r108-real-post-restart-historical.zip
+      - name: Save real screenshots, logs, status; never upload plugin plaintext
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r115-real-webpage-mse-wal-ui-g4-evidence
+          path: out/
+          if-no-files-found: warn
