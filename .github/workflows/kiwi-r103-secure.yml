@@ -1,15 +1,5 @@
 name: Kiwi R103 official Android AVD - private production MV2 secure handoff
 on:
-  push:
-    branches: [kiwi-r103-secure-avd]
-    paths:
-      - '.github/workflows/kiwi-r103-secure.yml'
-      - 'kiwi-r103-lab/**'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/kiwi-r103-secure.yml'
-      - 'kiwi-r103-lab/**'
   workflow_dispatch:
 permissions:
   contents: write
