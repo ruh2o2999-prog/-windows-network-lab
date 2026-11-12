@@ -40,6 +40,8 @@ def verify(artifact, private_key, certificate, output, verifier):
             raise ValueError('Artifact recipient certificate fingerprint differs')
         rawmeta=[json.loads(outer.read(x)) for x in (
             'r103_export_zip_manifest.json','r108_historical_real_download_manifest.json')]
+        if rawmeta[0]['sha256'] == rawmeta[1]['sha256']:
+            raise ValueError('Identical before/after ZIP hashes are not evidence of a fresh post-restart export')
         with TemporaryDirectory(prefix='r111-private-') as tmp:
             td=Path(tmp); recovered=[]
             for tag,mt,expected in zip(('before','historical'),rawmeta,
