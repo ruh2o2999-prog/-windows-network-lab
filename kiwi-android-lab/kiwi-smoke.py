@@ -322,11 +322,11 @@ def main():
         observed_404=int(n404.group(1)) if n404 else 0
         state['r105_public_mv2']={'host_events':len(api_events),'extension_ui_count':seen,'extension_404_events':observed_404,
                                  'routes':dict(counts),'purpose':'capability probe only'}
-        log_gate('R105_PROBE_MV2_WEBREQUEST_EVENTS',seen>=8,
-                 'Actual Kiwi DOM reports MV2 webRequest.onCompleted count='+str(seen))
+        log_gate('R105_PROBE_MV2_WEBREQUEST_EVENTS',seen>=8 and seen==len(api_events),
+                 'Kiwi MV2 onCompleted count='+str(seen)+' independent host HTTP events='+str(len(api_events)))
         log_gate('R105_PROBE_404_EVENT_SEEN',observed_404>=2 and
-                 counts.get('/r104/api/expected-404',0)>=2,
-                 'Actual Kiwi MV2 webRequest API reported >=2 HTTP 404 events and host server also confirmed 404')
+                 observed_404==counts.get('/r104/api/expected-404',0),
+                 'Kiwi MV2 onCompleted 404 count='+str(observed_404)+' independent host 404='+str(counts.get('/r104/api/expected-404',0)))
     finally:
         if server:
             server.terminate()
