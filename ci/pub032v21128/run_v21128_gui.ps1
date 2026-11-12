@@ -28,6 +28,12 @@ public static class PUB032V5Win {
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr GetDlgItem(IntPtr h,int id);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool SetWindowText(IntPtr h,string s);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h,uint msg,IntPtr wp,IntPtr lp);
+  // The official Win32 API expressly forbids SetWindowText on another process's EDIT control.
+  // WM_SETTEXT and WM_GETTEXT are < WM_USER and Windows marshals them across processes.
+  [DllImport("user32.dll",EntryPoint="SendMessageW",CharSet=CharSet.Unicode)]
+  public static extern IntPtr SendMessageText(IntPtr h,uint msg,IntPtr wp,[MarshalAs(UnmanagedType.LPWStr)] string lp);
+  [DllImport("user32.dll",EntryPoint="SendMessageW",CharSet=CharSet.Unicode)]
+  public static extern IntPtr SendMessageBuilder(IntPtr h,uint msg,IntPtr wp,StringBuilder lp);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool PostMessage(IntPtr h,uint msg,IntPtr wp,IntPtr lp);
   [DllImport("user32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool EnumChildWindows(IntPtr parent,EnumCallback cb,IntPtr extra);
   [DllImport("user32.dll",SetLastError=true)] public static extern int GetDlgCtrlID(IntPtr child);
@@ -53,14 +59,19 @@ function List-Windows($process){
 function Set-Edit($h,[int]$id,[string]$value){
   $ctl=[PUB032V5Win]::GetDlgItem($h,$id)
   if($ctl -eq [IntPtr]::Zero){throw "Publisher control missing: $id"}
-  if(![PUB032V5Win]::SetWindowText($ctl,$value)){throw "SetWindowText failed: $id"}
+  # Never use SetWindowTextW for an EDIT in the separate publisher process.
+  # Send synchronous WM_SETTEXT (0x000C) through Win32 system-message marshalling.
+  $result=[PUB032V5Win]::SendMessageText($ctl,0x000C,[IntPtr]::Zero,$value)
+  if($result -eq [IntPtr]::Zero){throw "Native WM_SETTEXT failed for field $id"}
+  $actual=Read-WindowText $ctl
+  if($actual -ne $value){throw "Native cross-process WM_GETTEXT readback mismatch for field $id"}
 }
 
 # PUB032 V6: nonintrusive, read-only diagnostics. Windows GUI always owns the actual build.
 function Read-WindowText([IntPtr]$h) {
   if($h -eq [IntPtr]::Zero){return ''}
   $b=[System.Text.StringBuilder]::new(2048)
-  [void][PUB032V5Win]::GetWindowText($h,$b,$b.Capacity)
+  [void][PUB032V5Win]::SendMessageBuilder($h,0x000D,[IntPtr]$b.Capacity,$b)
   return $b.ToString()
 }
 function Capture-Windows($proc,[IntPtr]$mainH,[int]$tick) {
