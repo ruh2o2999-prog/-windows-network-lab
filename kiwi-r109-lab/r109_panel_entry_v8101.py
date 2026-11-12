@@ -25,7 +25,7 @@ def target_safe(xml,terms):
             if x2>x1 and y2>y1 and y2>100 and x1<1080:
                 result.append((text,[x1,y1,x2,y2]))
     return result
-def open_original_panel(run,snapshot,type_internal_url,extension_id,fixture_url):
+def open_original_panel(run,snapshot,type_internal_url,extension_id,fixture_url,native_extensions_menu=None):
     evidence={'route':'Kiwi Extensions manager > Details > Extension options (original manifest options_page)',
               'form':'unchanged MV2 extension','attempts':[]}
     def rec(stage,xml):
@@ -43,8 +43,21 @@ def open_original_panel(run,snapshot,type_internal_url,extension_id,fixture_url)
         'response':msg[:220]}
     if rc!=0 or not evidence['fixture']['reopened_controlled_fixture']:
         return fixture_xml,evidence
-    manager=type_internal_url('kiwi://extensions/','r109_original_extensions_manager_after_restart')
-    rec('manager_after_cold_start',manager)
+    # R109 live Android Run43223192968 proved typing kiwi://extensions/
+    # through the omnibox becomes a GOOGLE SEARCH, not the manager.
+    # Invoke the already verified R104 native Kiwi overflow-menu route.
+    manager=None;native_selected=False
+    if native_extensions_menu:
+        from_kiwi,via_menu=native_extensions_menu(fixture_xml)
+        if from_kiwi:
+            manager=from_kiwi
+            native_selected=bool(via_menu)
+            rec('actual_native_kiwi_menu_extensions',manager)
+    if manager is None:
+        # Only a fallback route; do not silently treat Google search as manager.
+        manager=type_internal_url('chrome://extensions','r109_original_extensions_manager_after_restart')
+        rec('fallback_chrome_extensions_internal',manager)
+    evidence['native_menu_navigated']=native_selected
     evidence['matched_installed_id']=installed_extension(manager,extension_id)
     if not evidence['matched_installed_id']:
         return manager,evidence
