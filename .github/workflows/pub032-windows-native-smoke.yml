@@ -5,6 +5,11 @@ on:
     paths:
       - '.github/workflows/pub032-windows-native-smoke.yml'
       - 'ci/publisher/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/pub032-windows-native-smoke.yml'
+      - 'ci/publisher/**'
   workflow_dispatch:
 permissions:
   contents: read
