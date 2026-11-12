@@ -18,11 +18,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-      - uses: android-actions/setup-android@v3
+      - name: Use existing Ubuntu runner Android command-line SDK
+        shell: bash
+        run: |
+          mkdir -p evidence
+          echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          command -v sdkmanager
+          sdkmanager --version
       - name: Install SDK and NDK
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p evidence
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;29.0.14206865' 'cmake;3.22.1'
       - name: Get pinned publicly available Clash Meta source
@@ -49,6 +56,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          mkdir -p evidence
           find upstream/app/build/outputs/apk -type f -name '*.apk' -exec sha256sum {} \; > evidence/apk-hashes.txt 2>/dev/null || true
           echo 'Official source only, NOT a protected-app security APK; no real IP leak testing.' > evidence/SAFETY_README.txt
       - name: Preserve logs and APK artifacts
