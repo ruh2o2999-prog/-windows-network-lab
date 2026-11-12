@@ -1,0 +1,1 @@
+R115 HF1 retry: preserve Run43327867560 negative evidence. Test original panel tabId reload and user-equivalent UI events; same candidate SHA 1612cbb6a42c97a9f438e8610eaa3b0a52b2f869b31a454694372de249dd820a.
