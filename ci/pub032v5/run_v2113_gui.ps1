@@ -31,6 +31,8 @@ public static class PUB032V5Win {
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool PostMessage(IntPtr h,uint msg,IntPtr wp,IntPtr lp);
   [DllImport("user32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool EnumChildWindows(IntPtr parent,EnumCallback cb,IntPtr extra);
   [DllImport("user32.dll",SetLastError=true)] public static extern int GetDlgCtrlID(IntPtr child);
+  [DllImport("user32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowEnabled(IntPtr h);
+  [DllImport("user32.dll",SetLastError=true)] [return:MarshalAs(UnmanagedType.Bool)] public static extern bool IsWindowVisible(IntPtr h);
 }
 '@
 function List-Windows($process){
@@ -53,6 +55,53 @@ function Set-Edit($h,[int]$id,[string]$value){
   if($ctl -eq [IntPtr]::Zero){throw "Publisher control missing: $id"}
   if(![PUB032V5Win]::SetWindowText($ctl,$value)){throw "SetWindowText failed: $id"}
 }
+
+# PUB032 V6: nonintrusive, read-only diagnostics. Windows GUI always owns the actual build.
+function Read-WindowText([IntPtr]$h) {
+  if($h -eq [IntPtr]::Zero){return ''}
+  $b=[System.Text.StringBuilder]::new(2048)
+  [void][PUB032V5Win]::GetWindowText($h,$b,$b.Capacity)
+  return $b.ToString()
+}
+function Capture-Windows($proc,[IntPtr]$mainH,[int]$tick) {
+  $top=@(List-Windows $proc)
+  $rows=@()
+  foreach($w in $top) {
+    $childrenList=[System.Collections.Generic.List[System.IntPtr]]::new()
+    $childrenCallback=[PUB032V5Win+EnumCallback]{param([IntPtr]$h,[IntPtr]$unused) $childrenList.Add($h);return $true}
+    [void][PUB032V5Win]::EnumChildWindows($w.handle,$childrenCallback,[IntPtr]::Zero)
+    $children=@()
+    foreach($child in $childrenList) {
+      $type=[System.Text.StringBuilder]::new(160)
+      [void][PUB032V5Win]::GetClassName($child,$type,$type.Capacity)
+      $children+=@{
+        id=[PUB032V5Win]::GetDlgCtrlID($child)
+        class=$type.ToString()
+        text=(Read-WindowText $child)
+        enabled=[PUB032V5Win]::IsWindowEnabled($child)
+        visible=[PUB032V5Win]::IsWindowVisible($child)
+      }
+    }
+    $rows+=@{
+      title=$w.title
+      class=$w.class
+      hwnd=$w.handle.ToInt64()
+      visible=[PUB032V5Win]::IsWindowVisible($w.handle)
+      children=$children
+    }
+  }
+  $statusControl=[PUB032V5Win]::GetDlgItem($mainH,113)
+  $buildControl=[PUB032V5Win]::GetDlgItem($mainH,112)
+  return @{
+    kind='gui_snapshot'
+    tick=$tick
+    status=(Read-WindowText $statusControl)
+    build_button_enabled=($buildControl -ne [IntPtr]::Zero -and [PUB032V5Win]::IsWindowEnabled($buildControl))
+    output_exists=(Test-Path $outExe)
+    windows=$rows
+  }
+}
+
 $p=$null;$main=[IntPtr]::Zero
 try {
   if(Test-Path $outExe){throw 'Refuse overwrite existing generated EXE'}
@@ -99,27 +148,43 @@ try {
   [void][PUB032V5Win]::PostMessage($main,0x0111,[IntPtr]65655,$preset) # CBN_SELCHANGE(1) + ID 119
   $trace.Add(@{kind='publisher_fields_entered';input_source=$source;output_path=$outExe;preset='@WF:USERPROGRAMS'})
   if(![PUB032V5Win]::PostMessage($main,0x0111,[IntPtr]112,[IntPtr]::Zero)){throw 'Failed to post real ID_BUILD command'}
-  $trace.Add(@{kind='posted_build_button'})
+  $buildButton=[PUB032V5Win]::GetDlgItem($main,112)
+  $trace.Add(@{kind='posted_build_button';enabled=[PUB032V5Win]::IsWindowEnabled($buildButton);status=(Read-WindowText ([PUB032V5Win]::GetDlgItem($main,113)))})
+  # Diagnose every visible modal, not just two hard-coded titles.
+  # A synthetic workbook may legitimately fail strict validation; never bypass that gate to make CI green.
+  $seenDialog=[System.Collections.Generic.HashSet[string]]::new()
   for($i=0;$i -lt 180;$i++){
+    $p.Refresh()
     if($p.HasExited){throw "Publisher process exited during GUI build: $($p.ExitCode)"}
+    if(($i % 5) -eq 0){
+      $snapshot=Capture-Windows $p $main $i
+      $trace.Add($snapshot)
+      Write-Host ("PUB032_GUI_SNAPSHOT tick={0} status={1} build_enabled={2} out_exists={3}" -f $i,$snapshot.status,$snapshot.build_button_enabled,$snapshot.output_exists)
+    }
     $windows=@(List-Windows $p)
     foreach($w in $windows){
-      if($w.class -ne '#32770'){continue}
+      if($w.class -ne '#32770' -or ![PUB032V5Win]::IsWindowVisible($w.handle)){continue}
+      $fingerprint="$($w.handle.ToInt64()):$($w.title)"
+      if($seenDialog.Add($fingerprint)){
+        $trace.Add(@{kind='modal_window_observed';title=$w.title;hwnd=$w.handle.ToInt64();tick=$i})
+        Write-Host ("PUB032_VISIBLE_MODAL title={0} hwnd={1}" -f $w.title,$w.handle.ToInt64())
+      }
       if($w.title -eq '自动识别结果'){
-        $trace.Add(@{kind='source_recognition';title=$w.title;result='IDYES'})
-        if(![PUB032V5Win]::PostMessage($w.handle,0x0111,[IntPtr]6,[IntPtr]::Zero)){throw 'Failed to confirm source recognition'}
-        $acceptedConfirm=$true
-      }elseif($w.title -eq '确认免附加校验打包'){
-        $trace.Add(@{kind='unexpected_emergency_prompt';title=$w.title})
-        throw 'Unexpected emergency check disabled; fail closed'
+        if(!$acceptedConfirm){
+          $trace.Add(@{kind='source_recognition';title=$w.title;result='IDYES'})
+          if(![PUB032V5Win]::PostMessage($w.handle,0x0111,[IntPtr]6,[IntPtr]::Zero)){
+            throw 'Failed to confirm source recognition'
+          }
+          $acceptedConfirm=$true
+        }
       }elseif($w.title -eq '生成完成'){
         $trace.Add(@{kind='publish_success_modal';title=$w.title})
         $successPopup=$true
         [void][PUB032V5Win]::PostMessage($w.handle,0x0111,[IntPtr]1,[IntPtr]::Zero)
-      }elseif($w.title -match '失败|错误|不足|不支持|取消|异常'){
-        $trace.Add(@{kind='error_modal';title=$w.title})
-        $errorPopup=$true
-        throw "Publisher error modal: $($w.title)"
+      }else{
+        # Unexpected modal: preserve first, fail closed. Do NOT click arbitrary consent/error dialogs.
+        $trace.Add((Capture-Windows $p $main $i))
+        throw ("PUB032 unexpected visible modal: '{0}'. Check gui_trace and validation status; no automatic approval." -f $w.title)
       }
     }
     if($successPopup -and (Test-Path $outExe) -and (Get-Item $outExe).Length -gt 100000){break}
