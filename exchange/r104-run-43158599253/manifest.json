@@ -1,0 +1,48 @@
+{
+  "schema": "kiwi-segmented-aesgcm-r104-v1",
+  "session": "r104_run_43158599253",
+  "segment_size": 131072,
+  "count": 3,
+  "source_bytes": 370557,
+  "source_sha256": "32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479",
+  "algorithms": {
+    "payload": "AES-256-GCM",
+    "wrap": "RSA-OAEP-SHA256",
+    "nonce": "random-96-bit"
+  },
+  "parts": [
+    {
+      "index": 0,
+      "filename": "part-0000.enc",
+      "key_filename": "part-0000.keywrap",
+      "nonce_b64": "U0PqIgYdAK9dCXjx",
+      "plain_bytes": 131072,
+      "plain_sha256": "8f2c58809f4712b823f7acf9050fc486021d441afc23ecdaad0553833543424a",
+      "cipher_bytes": 131088,
+      "cipher_sha256": "40e12f75b3ac83cfe30567a9370bddcad016980e052326097720c82fbe9b1dbf",
+      "keywrap_sha256": "1478f27adfec0a56062a34d679d90e54ff9d806a253900bc87455b0df844becf"
+    },
+    {
+      "index": 1,
+      "filename": "part-0001.enc",
+      "key_filename": "part-0001.keywrap",
+      "nonce_b64": "VrYRDihfgofEGfpN",
+      "plain_bytes": 131072,
+      "plain_sha256": "fa8e87eba3e4ab89b16e75e180773a27be126114ef702c708213b4c749f4a0e9",
+      "cipher_bytes": 131088,
+      "cipher_sha256": "308de8f0362243150fb2c6d4badebdeb121d656caa7c428384fc469b31376a69",
+      "keywrap_sha256": "4cc3cbc48b2a35368b652dbab48905a81b6d94806faad055d439102bd4a21e3d"
+    },
+    {
+      "index": 2,
+      "filename": "part-0002.enc",
+      "key_filename": "part-0002.keywrap",
+      "nonce_b64": "BIvPEEnTtpJcdUkf",
+      "plain_bytes": 108413,
+      "plain_sha256": "2394c4044877aeede66b76c81e5e190aaca97a850aaa86aae3f5baea3ee7aefb",
+      "cipher_bytes": 108429,
+      "cipher_sha256": "d15f31b114e8758233fb82769e64417bbf4142ba3910f302666263abebfc9b80",
+      "keywrap_sha256": "4671fc0f3b4bfb1bb5683e62ebc7841a112448594f6d2dea4c911a088ce8c6b8"
+    }
+  ]
+}
