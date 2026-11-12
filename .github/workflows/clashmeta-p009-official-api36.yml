@@ -1,0 +1,62 @@
+name: ClashMeta P009 official APK install and launch on Android 16
+on:
+  push:
+    branches: [clashmeta-p009-official-api36-smoke]
+    paths:
+      - '.github/workflows/clashmeta-p009-official-api36.yml'
+      - 'clashmeta-p009/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  official-api36:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate new app smoke test
+        run: python3 -m py_compile clashmeta-p009/install_baseline_android16.py
+      - name: Retrieve SHA-pinned P004 official APK and build manifest from existing successful run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p p009-baseline p009-evidence
+          gh run download 43254263831 --repo "${GITHUB_REPOSITORY}" --name clashmeta-official-p004-build-evidence --dir p009-baseline
+          find p009-baseline -type f -name '*.apk' -printf '%p %s bytes\n' > p009-evidence/downloaded_apks.txt
+          find p009-baseline -type f -name 'apk-hashes.txt' -print > p009-evidence/manifests.txt
+          test -s p009-evidence/downloaded_apks.txt
+          test -s p009-evidence/manifests.txt
+      - name: Enable KVM if present
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm > p009-evidence/kvm.txt 2>&1 || true
+      - name: Boot Android16 API36 and install/run unchanged CMFA APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 clashmeta-p009/install_baseline_android16.py
+      - name: Preserve explicit security scope
+        if: always()
+        shell: bash
+        run: |
+          echo 'Only official unchanged CMFA installed and smoke tested. NOT the protected APP, no actual leak test. G5 BLOCKED.' > p009-evidence/NOT_RELEASE.txt
+          find p009-evidence -maxdepth 1 -type f -printf '%f %s bytes\n' > p009-evidence/INDEX.txt
+      - name: Upload only evidence, never APK redistributions
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clashmeta-p009-android16-official-apk-smoke-evidence
+          path: p009-evidence/
+          retention-days: 14
+          if-no-files-found: warn
