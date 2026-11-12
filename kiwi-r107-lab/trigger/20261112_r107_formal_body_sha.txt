@@ -1,0 +1,1 @@
+R107 formal frozen MV2 V0.4.58 SHA256=32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479; server-derived body SHA vs actual CDP index and response binaries; 13 independent synthetic checks passed Run43189400506; do not publish private source; historical R/F/T, UX, R77, R88, R94 continue open.
