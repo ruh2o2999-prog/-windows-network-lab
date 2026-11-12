@@ -67,67 +67,31 @@ function Capture-FailureModal([IntPtr]$dialog,[string]$label){
   Write-Host "INSTALL_FAILURE_DIALOG_CAPTURED $label child_count=$($children.Count)"
   return $children
 }
-function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit) {
-  if(!(Test-Path $path)){throw "Missing real installer: $label"}
-  $proc=Start-Process -FilePath $path -PassThru
-  $clicked=$false;$errorSeen=$false;$errorTitle='';$closeSent=$false;$lastWindows=@()
-  $script:modalLogged=$false
-  try{
-    for($i=0;$i -lt 135;$i++){
-      $proc.Refresh()
-      if($proc.HasExited){break}
-      $windows=@(Enum-Windows $proc)
-      $lastWindows=@($windows | ForEach-Object {"$($_.class):$($_.title)"})
-      if(($i%25) -eq 0){Write-Host "INSTALL_PROGRESS $label tick=$i clicked=$clicked modal=$errorSeen window_count=$($windows.Count)"}
-      $main=@($windows | Where-Object {$_.class -eq 'WorkPlatformInstaller'} | Select-Object -First 1)
-      if(!$clicked -and $main.Count){
-        $h=$main[0].h
-        if([NativeWFInstallerTest]::GetDlgItem($h,203) -ne [IntPtr]::Zero){
-          if(![NativeWFInstallerTest]::PostMessage($h,0x0111,[IntPtr]203,[IntPtr]::Zero)){throw "Installer start click failed: $label"}
-          $clicked=$true
-        }
-      }
-      foreach($w in $windows){
-        if($w.class -ne '#32770'){continue}
-        if($w.title -eq '工作平台 · 安装失败'){
-          if(!$errorSeen){Write-Host "INSTALL_MODAL_DETECTED $label title=$($w.title)"}
-          $errorSeen=$true;$errorTitle=$w.title
-          if(!$script:modalLogged){[void](Capture-FailureModal $w.h $label);$script:modalLogged=$true}
-          # BM_CLICK acts on the actual MessageBox IDOK BUTTON. A WM_COMMAND
-          # sent to the modal's parent is not equivalent and previously hung.
-          $button=[NativeWFInstallerTest]::GetDlgItem($w.h,1)
-          if($button -eq [IntPtr]::Zero){throw "Failure modal has no IDOK button: $label"}
-          if(![NativeWFInstallerTest]::PostMessage($button,0x00F5,[IntPtr]::Zero,[IntPtr]::Zero)){
-            throw "Failed to deliver BM_CLICK to actual modal button: $label"
-          }
-        }else{throw "Unexpected installer modal for $label; title '$($w.title)' not approved"}
-      }
-      # Do not close owner while modal is active; show_failure() sets finished
-      # only AFTER MessageBox returns. Wait for enabled close button and retry.
-      $modalPresent=@($windows | Where-Object {$_.class -eq '#32770'}).Count -gt 0
-      if($errorSeen -and !$modalPresent -and $main.Count -and (($i%4) -eq 0)){
-        $h=$main[0].h
-        $btn=[NativeWFInstallerTest]::GetDlgItem($h,203)
-        if($btn -ne [IntPtr]::Zero -and [NativeWFInstallerTest]::IsWindowEnabled($btn)){
-          [void][NativeWFInstallerTest]::PostMessage($h,0x0111,[IntPtr]203,[IntPtr]::Zero)
-          $closeSent=$true
-          Write-Host "INSTALL_FAIL_DIALOG_CLOSED $label post_close_tick=$i"
-        }
-      }
-      Start-Sleep -Milliseconds 500
+function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit){
+  if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw "Actual Windows installer missing for $label"}
+  $perCase=Join-Path $out ("pub010_uia_"+$label+".json")
+  if(Test-Path $regPath){$env:PUB010_TEST_OFFICE_SHIM='1'}else{Remove-Item Env:PUB010_TEST_OFFICE_SHIM -ErrorAction SilentlyContinue}
+  # Reuse verified mature UIA strategy for modal. Main launch still sends
+  # actual Win32 ID_INSTALL to the PID-verified OWN process.
+  & python ci/pub032v21129/native_installer_uia.py --exe $path --case $label --report $perCase --timeout 100
+  $driverExit=$LASTEXITCODE
+  if(!(Test-Path -LiteralPath $perCase)){throw "UIA driver produced no evidence: $label exit=$driverExit"}
+  $e=Get-Content -LiteralPath $perCase -Raw -Encoding UTF8 | ConvertFrom-Json
+  $results.Add(@{case=$label;real_windows_process=$e.real_win32_exe;
+    native_gui_started=$e.main_window_seen;real_install_command=$e.install_button_sent;
+    process_exit=$e.exit_code;expected_exit=$expectedExit;actual_failure_modal=$e.failure_modal_seen;
+    actual_failure_code=$e.WF_error;pywinauto_confirmed=$e.modal_uia_ok;
+    actual_excel_macros_executed=$false;office_shim_only=$e.office_test_shim_only})
+  Write-Host "PUB010_NATIVE_CASE=$label actual_exit=$($e.exit_code) expected=$expectedExit actual_WF=$($e.WF_error) UIA=$($e.modal_uia_ok)"
+  if($driverExit -ne 0){throw "UIA installer driver failure: $label; exit=$driverExit"}
+  if($e.exit_code -ne $expectedExit){throw "Actual native installer returned unexpected code $($e.exit_code) for $label (expected $expectedExit)"}
+  if(!$e.main_window_seen -or !$e.install_button_sent){throw "No real native GUI command was exercised: $label"}
+  if($expectedExit -ne 0){
+    if(!$e.failure_modal_seen -or !$e.modal_uia_ok -or $e.WF_error -ne $expectedExit){
+      throw "Installer negative test did not prove expected modal WF-$expectedExit: $label"
     }
-    $proc.Refresh()
-    if(!$proc.HasExited){throw "Timeout waiting for actual installer: $label;clicked=$clicked;error_modal=$errorSeen;windows=$($lastWindows -join ',')"}
-    if(!$clicked){throw "Installer GUI never received ID_INSTALL command: $label"}
-    $exit=[int]$proc.ExitCode
-    $row=@{case=$label;process_exit=$exit;expected_exit=$expectedExit;native_gui_clicked=$clicked;error_modal_seen=$errorSeen;
-      no_excel_business_macro_execution=$true;office_presence_test_shim_only=(Test-Path $regPath)}
-    $results.Add($row)
-    Write-Host "INSTALL_CASE $label EXIT=$exit expected=$expectedExit clicked=$clicked error_seen=$errorSeen"
-    if($exit -ne $expectedExit){throw "Installer $label exit=$exit expected=$expectedExit"}
-  }finally{
-    $proc.Refresh()
-    if(!$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}
+  }else{
+    if($e.failure_modal_seen){throw "Supposed successful installer showed failure dialog: $label"}
   }
 }
 function Verify-Files([int]$expectedCount,[string]$label,[bool]$allowOldQa){
