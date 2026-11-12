@@ -1,0 +1,1 @@
+R106 A7 verification run: frozen production MV2 V0.4.58 SHA256 32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479; R104 strict Trace.requests parser fixed commit 6b35be50; verify controlled Kiwi Android fixture, requests/HAR/Trace parity; preserve existing historical failures and no merge.

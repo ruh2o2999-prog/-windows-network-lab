@@ -1,0 +1,94 @@
+name: Kiwi R104 formal MV2 controlled network capture audit (private transfer)
+on:
+  push:
+    branches: [kiwi-r104-formal-network-audit]
+    paths:
+      - 'kiwi-r104-lab/trigger/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  kiwi-production-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preflight scripts and release
+        run: |
+          python3 -m py_compile kiwi-android-lab/download_kiwi.py kiwi-r104-lab/r104-production-network-test.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py
+          mkdir -p out
+          python3 kiwi-android-lab/download_kiwi.py
+      - name: Publish one-time certificate (NOT private key) into isolated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:3072 -keyout /tmp/r103-private-key.pem -out /tmp/r103-certificate.pem -sha256 -days 1 -nodes -subj '/CN=KiwiR103Ephemeral/' >/dev/null 2>&1
+          chmod 600 /tmp/r103-private-key.pem
+          mkdir -p exchange
+          cp /tmp/r103-certificate.pem "exchange/r104-run-${GITHUB_RUN_ID}.crt"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "exchange/r104-run-${GITHUB_RUN_ID}.crt"
+          git commit -m "ci(r103): publish one-time test receiver certificate for run ${GITHUB_RUN_ID}"
+          git push origin HEAD:kiwi-r104-formal-network-audit
+          echo "R104_PUBLIC_CERT_READY=exchange/r104-run-${GITHUB_RUN_ID}.crt"
+      - name: Receive public ciphertext, decrypt ONLY on transient runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="exchange/r104-run-${GITHUB_RUN_ID}.p7m.b64"
+          FOUND=0
+          for attempt in $(seq 1 180); do
+            git fetch -q origin '+refs/heads/kiwi-r104-formal-network-audit:refs/remotes/origin/kiwi-r104-formal-network-audit'
+            if git show "origin/kiwi-r104-formal-network-audit:${NAME}" > /tmp/r103-package.p7m.b64 2>/dev/null; then
+              FOUND=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$FOUND" != 1 ]; then echo 'R104_PRIVATE_TRANSFER_TIMEOUT'; exit 23; fi
+          base64 -d /tmp/r103-package.p7m.b64 > /tmp/r103-package.p7m
+          openssl cms -decrypt -binary -inform DER -in /tmp/r103-package.p7m -recip /tmp/r103-certificate.pem -inkey /tmp/r103-private-key.pem -out /tmp/kiwi-r104-production.zip
+          python3 - <<'PY'
+          import zipfile,hashlib,json
+          p='/tmp/kiwi-r104-production.zip'
+          with zipfile.ZipFile(p) as z:
+            assert z.testzip() is None
+            m=json.loads(z.read('manifest.json'))
+            assert m['manifest_version']==2 and m['version']=='0.4.58'
+          report={'source':'Encrypted session-specific R100 MV2 archive','sha256':hashlib.sha256(open(p,'rb').read()).hexdigest(),'bytes':__import__('os').path.getsize(p),'version':m['version'],'name':m['name']}
+          open('out/formal_package_provenance.json','w').write(json.dumps(report,ensure_ascii=False,indent=2))
+          print('R104_DECRYPTED_PRODUCTION_MV2_CRC_VERIFIED',json.dumps(report,ensure_ascii=False))
+          PY
+          shred -u /tmp/r103-private-key.pem /tmp/r103-package.p7m /tmp/r103-package.p7m.b64 || true
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -la /dev/kvm || true
+      - name: Android 11 Google APIs actual Kiwi formal extension test
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          R103_PRODUCTION_ZIP: /tmp/kiwi-r104-production.zip
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-r104-lab/r104-production-network-test.py
+      - name: Remove transient decrypted formal ZIP
+        if: always()
+        run: rm -f /tmp/kiwi-r104-production.zip /tmp/r103-private-key.pem
+      - name: Preserve only logs, screenshots and structured results (never package)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r104-formal-network-android-evidence
+          path: out/
+          if-no-files-found: warn
