@@ -60,6 +60,56 @@ def swipe(run,snapshot,label):
     run(['adb','shell','input','swipe','795','1330','795','430','390'])
     time.sleep(1.4)
     return snapshot(label)
+def click_matching_historical_export(xml,expected,run,snapshot):
+    """Never export an arbitrary task. Match stopped exact count in same row."""
+    try:root=ET.fromstring(xml[xml.index('<?xml'):])
+    except (ValueError,ET.ParseError):return None
+    parents={c:p for p in root.iter() for c in p}
+    candidates=[]
+    for n in root.iter('node'):
+        label=n.attrib.get('text','')+' '+n.attrib.get('content-desc','')
+        if expected not in label or '已结束' not in label:continue
+        anc=n
+        for depth in range(1,8):
+            anc=parents.get(anc)
+            if anc is None:break
+            buttons=[x for x in anc.iter('node') if x.attrib.get('text','')=='导出'
+                     and x.attrib.get('clickable')=='true']
+            if not buttons:continue
+            for x in buttons:
+                m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',x.attrib.get('bounds',''))
+                if m:
+                    a,b,c,d=map(int,m.groups())
+                    if c>a and d>b:candidates.append(((a+c)//2,(b+d)//2,label,depth))
+            if candidates:break
+    if len(candidates)!=1:return {'error':'Matching export controls: '+str(len(candidates))}
+    x,y,txt,depth=candidates[0]
+    run(['adb','shell','input','tap',str(x),str(y)])
+    time.sleep(5)
+    return {'xml':snapshot('r108_exact_history_export_trigger'),
+            'label':txt,'tap':[x,y],'hierarchy_depth':depth}
+def pulled_history_zip(xml,run,snapshot,out):
+    """Browser-side Downloads dialog and actual adb pull are separate gates."""
+    if 'Choose where to download' in xml or 'text="Download"' in xml:
+        x=touch(xml,['Download'],run,snapshot,'r108_historic_download_confirm')
+        if x:xml=x['xml']
+    for i in range(24):
+        rc,msg=run(['adb','shell','ls','-1','/sdcard/Download'],timeout=20)
+        files=[x.strip() for x in msg.splitlines() if '历史观察_' in x and x.strip().endswith('.zip')]
+        if files:
+            path='/sdcard/Download/'+files[-1]
+            target='/tmp/r108-real-post-restart-historical.zip'
+            rc,msg=run(['adb','pull',path,target],timeout=75)
+            if rc==0 and Path(target).is_file():
+                with zipfile.ZipFile(target) as z:
+                    integrity=z.testzip();names=z.namelist()
+                manifest={'original':files[-1],'bytes':Path(target).stat().st_size,
+                          'sha256':h(Path(target).read_bytes()),
+                          'members':len(names),'crc_error':integrity,'pulled':True}
+                report_json(out/'r108_historical_real_download_manifest.json',manifest)
+                return Path(target),manifest
+        time.sleep(1.5)
+    return None,{'error':'No actual history ZIP found after trigger and download confirmation'}
 def evidence_gate(state,name,success,detail):
     state['gates'][name]={'status':'PASS' if success else 'FAIL','detail':detail}
     print(('PASS' if success else 'FAIL')+' '+name+': '+str(detail)[:330],flush=True)
@@ -175,7 +225,24 @@ def execute(formal_zip,run,snapshot,state,OUT,fixture_url,open_internal=None):
         # exact original task has been independently identified in UI.
         # A wrong-task export is expressly forbidden.
         if exact:
-            result['debug']['history_row_match']='Original count visible but export not blindly clicked'
+            chosen=click_matching_historical_export(match_xml,request_marker,run,snapshot)
+            result['debug']['history_export_control']=(
+                {k:v for k,v in chosen.items() if k!='xml'} if chosen else None)
+            clicked=bool(chosen and 'xml' in chosen)
+            evidence_gate(result,'R108_11_exact_original_history_export_clicked',clicked,
+                          result['debug']['history_export_control'])
+            if clicked:
+                historical,manifest=pulled_history_zip(chosen['xml'],run,snapshot,OUT)
+                evidence_gate(result,'R108_12_real_history_zip_download_adb_pull',
+                              historical is not None and manifest.get('crc_error') is None,manifest)
+                if historical:
+                    from r108_offline_recovery_parity import verify as compare_history
+                    detailed=compare_history(formal_zip,historical,
+                            OUT/'r108_formal_original_before_after_parity.json')
+                    for k,v in detailed['gates'].items():
+                        evidence_gate(result,k,v['status']=='PASS',v['details'])
+                    result['original_history_task_recovery']=(
+                        'PASS' if detailed['summary']['failed']==0 else 'FAIL')
         result['debug']['final_xml']='r108_search_history_request_count_*.xml'
     except Exception as e:
         result['exception']=repr(e)
