@@ -21,7 +21,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Python source (without Android)
         run: |
-          python3 -m py_compile kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/fixture_probe.py kiwi-android-lab/kiwi-smoke.py
+          python3 -m py_compile kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/fixture_probe.py kiwi-android-lab/kiwi-smoke.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/test_r104_capture_reconcile.py
+          python3 kiwi-r104-lab/test_r104_capture_reconcile.py
           python3 kiwi-android-lab/download_kiwi.py
       - name: Enable KVM
         run: |
