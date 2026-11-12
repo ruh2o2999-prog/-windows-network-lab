@@ -4,6 +4,7 @@ on:
     branches: [publisher-pub032-win-native-20261112]
     paths:
       - '.github/workflows/pub032-v2113-real-publisher.yml'
+      - 'ci/pub032v5/**'
   workflow_dispatch:
 permissions:
   contents: write
