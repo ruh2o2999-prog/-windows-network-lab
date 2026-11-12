@@ -1,0 +1,29 @@
+{
+  "status": "PASS",
+  "stage": "R107",
+  "verification": "Google Drive actual cloud bytes materialized and rehashed after upload",
+  "parts": [
+    {
+      "number": 1,
+      "bytes": 57671680,
+      "sha256": "47abb73c89208ba10c72a7630762bac4699f4d8537828769f90f3e67fff835a2",
+      "match": true
+    },
+    {
+      "number": 2,
+      "bytes": 57671680,
+      "sha256": "32eb7bbe4b92365532af1cf7b8c5325b4458c84c90519e0fd4e29f00ef25f156",
+      "match": true
+    },
+    {
+      "number": 3,
+      "bytes": 31824573,
+      "sha256": "7653a8802e59c744fc234be1d17e12cf2fd5674be4a577bf576328da740c2daa",
+      "match": true
+    }
+  ],
+  "combined_bytes": 147167933,
+  "combined_sha256": "6d96368376409f9fde3863d353a7365b0b7b192b0c136de2007251c75d8e9f9c",
+  "cloud_bytes_match_source": true,
+  "local_full_zip_crc": "PASS"
+}
