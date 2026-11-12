@@ -1,0 +1,11 @@
+原编号,范围,上次状态,本轮证据判定,当前状态,验收证据,保留范围与后续动作
+R109-INDEX-01,Android11 Kiwi V0.4.59-rc1 原历史索引冲突,L2_PASS_G4_NOT_YET_VERIFIED,原始历史导出真实运行并独立回读,SUB_PASS_ANDROID11_RC1,"Run 43283530409；历史ZIP SHA e87ea25b09187bfcaba5fed2ce0db625ff0f103bdf93f3de3d6db4b171107e3c；CRC PASS",冻结V0.4.58仅作为回滚基线；候选未发布
+R108-EXPORT-01,已结束的同一历史任务冷重启导出,PARTIAL,真实Kiwi全链路导出与ADB pull并保存原始ZIP,SUB_PASS_ANDROID11_RC1,"重启前SHA 604dd400cade7c109720aa234206acb89477a9d1fc7079d4344fcccdb230ccb2；历史SHA e87ea25b09187bfcaba5fed2ce0db625ff0f103bdf93f3de3d6db4b171107e3c",不代表中途崩溃恢复或所有历史任务情形
+R108-ZIP-01,真实控制HTTP 36请求+36原始CDP正文冷重启一一对应,OPEN,两份原始ZIP脱离Runner后重复5门审计,SUB_PASS_ANDROID11_RC1,36请求无丢失重复；36/36响应正文sha匹配；独立复核5/5,扩展到异常关闭与多媒体数据仍须单独验证
+R07/T17/T37,跨场景冷重启持久化及完整恢复,PARTIAL,本轮仅补证已结束任务,PARTIAL,同一会话capture-95-5db9ac32；成功已结束任务恢复,中途异常退出和其余原验收条款保持开放
+R17,已结束任务冻结与新任务隔离,PARTIAL,原会话结束时间重启前后一致,PARTIAL,独立复核R108_14 PASS,其他任务互不污染及边界回归另验
+R26,事件证据与正文持久化可复核,PARTIAL,36份CDP正文真实跨重启保存成功,PARTIAL,R108_13 PASS及原始双ZIP存档,不覆盖所有数据源/长期持久化原要求
+R94-04,512MiB以上MSE/OPFS录制与重启恢复,NOT_RUN,本轮未测试,NOT_RUN,不相关,须独立真实媒体场景
+R77-02,视频媒体身份强关系,NOT_RUN,本轮未测试,NOT_RUN,不相关,须独立媒体请求与下载关联
+R88-01,YouTube 403失败机制,NOT_RUN,本轮未测试,NOT_RUN,不相关,须依据授权环境攻坚
+UX06/UX07,Kiwi原生开发者工具体验,FAIL/NOT_RUN,本轮未测试,FAIL/NOT_RUN,不相关,保留原失败和未运行状态
