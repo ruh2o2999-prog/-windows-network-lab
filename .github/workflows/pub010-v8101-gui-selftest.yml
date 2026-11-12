@@ -1,0 +1,49 @@
+name: PUB-010 V8.10.1 Native Windows Modal Automation Selftest
+on:
+  push:
+    branches: [publisher-v21129-v8101-installer-diagnosis-20261112]
+    paths:
+      - '.github/workflows/pub010-v8101-gui-selftest.yml'
+      - 'ci/pub032v21129/native_install_acceptance.ps1'
+      - 'ci/pub032v21129/modal_bmclick_selftest.ps1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-native-gui-automation-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse both PowerShell files and validate corrected App Paths registry boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($path in @('ci/pub032v21129/native_install_acceptance.ps1','ci/pub032v21129/modal_bmclick_selftest.ps1')){
+            $tok=$null;$err=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path).Path,[ref]$tok,[ref]$err) | Out-Null
+            if($err.Count){throw "PowerShell parser rejected $path : $($err | Out-String)"}
+          }
+          $source=Get-Content 'ci/pub032v21129/native_install_acceptance.ps1' -Raw
+          foreach($term in @('Capture-FailureModal','0x00F5','App Paths\excel.exe','Set-Item -Path $regPath -Value','TEST')){
+            # 'TEST' is not mandatory in the existing script; check only actual invariant strings below.
+          }
+          if($source -notmatch 'Capture-FailureModal' -or $source -notmatch '0x00F5' -or
+            $source -notmatch 'Windows\\CurrentVersion\\App Paths\\excel.exe' -or
+            $source -notmatch 'Set-Item -Path \$regPath -Value'){
+            throw 'Missing correct native installer automation diagnostic guards'
+          }
+          Write-Host 'PUB010_V8101_POWERSHELL_PARSE_AND_CONTROL_CONTRACT_PASS'
+      - name: Actually spawn Win32 message box and close via child IDOK BM_CLICK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & pwsh -NoProfile -File ci/pub032v21129/modal_bmclick_selftest.ps1
+          if($LASTEXITCODE -ne 0){throw "Modal automation returned $LASTEXITCODE"}
+      - name: Explicit evidence boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'TEST_SCOPE=Windows native controlled MessageBox UI automation, NOT the real publisher or real Excel installation'
+          Write-Host 'PRODUCT_PUB010_NOT_CLOSED=true'
+          Write-Host 'PRODUCT_PUB027_NOT_CLOSED=true'
