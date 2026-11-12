@@ -15,6 +15,8 @@ int WINAPI WinMain(HINSTANCE inst,HINSTANCE prev,LPSTR cmd,int show){
  h=CreateWindowExW(0,L"PUB032GUIProbe",L"PUB032_WIN32_WINDOW_PROBE",
  WS_OVERLAPPEDWINDOW,25,25,350,120,NULL,NULL,inst,NULL);
  if(!h){return 101;}
+ if(!CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"probe_app",WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,12,14,310,25,h,(HMENU)(INT_PTR)105,inst,NULL))return 102;
+ if(!CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"probe_source",WS_CHILD|WS_VISIBLE|ES_AUTOHSCROLL,12,44,310,25,h,(HMENU)(INT_PTR)103,inst,NULL))return 103;
  ShowWindow(h,SW_SHOW);UpdateWindow(h);
  {
    HANDLE out=CreateFileW(L"out\\pub032_gui_child.txt",GENERIC_WRITE,FILE_SHARE_READ,
