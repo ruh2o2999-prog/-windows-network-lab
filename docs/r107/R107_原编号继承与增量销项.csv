@@ -1,0 +1,13 @@
+﻿原编号,本轮新增状态,历史原状态是否保留,业务验收范围,证据,剩余条件与下一步
+R107-RESP-01,SUB_PASS_AndroidKiwi受控36条,YES,36条浏览器CDP真实正文文件+源服务器SHA+requestId+9个404一致,Run43189478963; R107_01..07=7/7;离线复放7/7,只销无压缩 localhost 四类受控正文；不得宣称所有网站或线上原始字节
+R106-RESP-01 / R03 / R21 / T11 / T28,PARTIAL_本轮补齐受控子项,YES 原R106 NOT_RUN历史保留,前轮只出现36个正文文件，现已对等36个真实服务器响应、体积、SHA,Run43189478963、独立复验ZIP,进一步核对原文本每项全量要求及缓存/ServiceWorker/非UTF8等
+R104-A7-NET,SUB_PASS_继承,YES,正式网络元数据requests/HAR/Trace逐事件匹配,Run43189478963;10/10+8/8,非所有A7 / F/T整项
+R106-EVID-01,PARTIAL,YES 原OPEN,受控内容ZIP可独立二次验收,R107_新规范完全自包含正文证据.zip;7/7,完整原始正式导出ZIP未公开保存，旧问题仍保留
+R107-RESP-02,NOT_RUN,新增,gzip/br、非UTF8/二进制大包、流式、重定向、缓存/ServiceWorker,R107研究报告,真实Kiwi逐项新实验
+R106-UI-01,OPEN,YES,网页侧栏实时计数问题,R106真实观察截图,修复UI 计数与后台记录显示的一致性
+R07/R17/R26/T17/T37,NOT_RUN,YES,Android进程重启后的请求与CDP持久正文恢复,R103原台账,R108真实进程回收→历史任务→重新导出→哈希对账
+R94-04,NOT_RUN,YES,512MiB以上MSE/Worker/OPFS→重启→视频重建,R106/107未触发,开展真实大媒体实测
+R77-02,NOT_RUN,YES,Media.playerId→requestId→媒体文件强身份,原历史链,真实并发媒体和文件回执
+R88-01,NOT_RUN,YES,YouTube 403/完整有声文件实证,原历史链,授权场景独立下载和哈希
+UX-06/UX-07,PARTIAL,YES,原生DevTools复制编辑导出和窗口,原UI历史台账,真实Kiwi触屏验收
+F01-F15 / T01-T54,原始状态逐项继承_不整体销项,YES,原V2.2全量原编号与全部原失败,R103完整历史工程,按原个别门G5验收
