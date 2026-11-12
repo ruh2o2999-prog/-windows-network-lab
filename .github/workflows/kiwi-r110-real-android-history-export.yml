@@ -73,6 +73,8 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           R103_PRODUCTION_ZIP: /tmp/kiwi-r104-production.zip
+          R110_EXPECTED_VERSION: '0.4.59'
+          R110_EXPECTED_SHA256: caa0e128b1d1a9d185f0d18ea6af39d36a63fa2abeb587acab2f8dc5ff0720e9
         with:
           api-level: 30
           target: google_apis
