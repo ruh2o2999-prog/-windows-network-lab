@@ -7,6 +7,53 @@ No private test data or original paths are printed to public workflow logs.
 import argparse,ctypes,json,re,subprocess,time,os
 from pathlib import Path
 from pywinauto import Desktop
+
+def native_snapshot(u, pid):
+    """Read-only PID-scoped Win32 window inspection; never log paths or private text."""
+    WINENUM = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_ssize_t)
+    u.EnumWindows.argtypes = [WINENUM, ctypes.c_ssize_t]
+    u.GetClassNameW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+    u.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+    u.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_void_p]
+    u.SendMessageW.restype = ctypes.c_ssize_t
+    result = dict(win32_windows=0, main_seen=False, failure_dialog_native=False,
+                  main_button_enabled=False, status_error=None, status_phase=None)
+    def read_text(h):
+        buf = ctypes.create_unicode_buffer(800)
+        u.SendMessageW(h, 0x000D, len(buf), ctypes.cast(buf, ctypes.c_void_p))
+        return buf.value
+    def each(hwnd, extra):
+        owned = ctypes.c_uint(0)
+        u.GetWindowThreadProcessId(hwnd, ctypes.byref(owned))
+        if int(owned.value) != int(pid):
+            return True
+        result["win32_windows"] += 1
+        name = ctypes.create_unicode_buffer(128)
+        u.GetClassNameW(hwnd, name, len(name))
+        cls = name.value
+        if cls == "WorkPlatformInstaller":
+            result["main_seen"] = True
+            btn = u.GetDlgItem(hwnd, 203)
+            result["main_button_enabled"] = bool(btn and u.IsWindowEnabled(btn))
+            status = u.GetDlgItem(hwnd, 205)  # actual installer.c ID_STATUS
+            text = read_text(status) if status else ""
+            found = re.search(r"WF-(\d{3,5})", text)
+            if found:
+                result["status_error"] = int(found.group(1))
+            for token in ("备份", "正在部署", "正在检查", "安装成功", "安装失败"):
+                if token in text:
+                    result["status_phase"] = token
+                    break
+        elif cls == "#32770":
+            caption = ctypes.create_unicode_buffer(128)
+            u.GetWindowTextW(hwnd, caption, len(caption))
+            if caption.value == "工作平台 · 安装失败":
+                result["failure_dialog_native"] = True
+        return True
+    callback = WINENUM(each)
+    u.EnumWindows(callback, 0)
+    return result
+
 def run(exe,case,out,timeout):
     u=ctypes.windll.user32
     u.FindWindowW.argtypes=[ctypes.c_wchar_p,ctypes.c_wchar_p]
@@ -27,10 +74,27 @@ def run(exe,case,out,timeout):
             raise RuntimeError("Missing/improbably small generated EXE")
         p=subprocess.Popen([str(exe)])
         start=time.monotonic();modal_start=None;closed=None
+        snapshot_last_at=-20
+        report["v812_diag_scope"]="PID-only native windows and status codes; no paths/data"
+        report["native_window_snapshots"]=[]
         while time.monotonic()-start<timeout:
             code=p.poll()
             if code is not None:
                 report["exit_code"]=code;break
+            elapsed=time.monotonic()-start
+            if elapsed-snapshot_last_at>=15:
+                try:
+                    snapshot=native_snapshot(u,p.pid)
+                    snapshot["elapsed_sec"]=round(elapsed,1)
+                    report["native_window_snapshots"].append(snapshot)
+                    report["native_window_snapshots"]=report["native_window_snapshots"][-8:]
+                    if snapshot["failure_dialog_native"]:
+                        report["failure_modal_native_seen"]=True
+                    if snapshot["status_error"] is not None:
+                        report["last_native_status_error"]=snapshot["status_error"]
+                except Exception as diag_exc:
+                    report["native_snapshot_error"]=type(diag_exc).__name__
+                snapshot_last_at=elapsed
             hwnd=u.FindWindowW("WorkPlatformInstaller","工作平台安装向导")
             if hwnd:
                 other_pid=ctypes.c_uint(0)
@@ -71,7 +135,12 @@ def run(exe,case,out,timeout):
                 if button and u.IsWindowEnabled(button):
                     u.PostMessageW(hwnd,0x111,203,0)
             time.sleep(0.3)
-        if p.poll() is None:raise TimeoutError("Actual installer did not exit within bounded test")
+        if p.poll() is None:
+            try:
+                report["timeout_native_snapshot"]=native_snapshot(u,p.pid)
+            except Exception as diag_exc:
+                report["timeout_snapshot_error"]=type(diag_exc).__name__
+            raise TimeoutError("Actual installer did not exit; read sanitized native status+modal snapshot")
         report["exit_code"]=p.returncode
         if not report["install_button_sent"]:raise RuntimeError("Real install command was never sent")
         print("PUB010_WIN32_ACTUAL",case,"exit",p.returncode,"WF",report["WF_error"],"modal",report["failure_modal_seen"])
