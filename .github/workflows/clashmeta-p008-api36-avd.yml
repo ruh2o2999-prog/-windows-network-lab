@@ -1,0 +1,50 @@
+name: ClashMeta P008 Android 16 public AVD bootstrap (NO PRIVATE CODE)
+on:
+  push:
+    branches: [clashmeta-p008-api36-avd]
+    paths:
+      - '.github/workflows/clashmeta-p008-api36-avd.yml'
+      - 'clashmeta-p008/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android16-avd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: L1 script syntax
+        run: python3 -m py_compile clashmeta-p008/probe_android16.py
+      - name: Enable KVM when present
+        shell: bash
+        run: |
+          mkdir -p p008-evidence
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          (ls -l /dev/kvm || true) > p008-evidence/kvm.txt 2>&1
+      - name: Boot Android 16 API 36 x86_64 and inspect ADB VPN environment
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 clashmeta-p008/probe_android16.py
+      - name: Record scope
+        if: always()
+        shell: bash
+        run: |
+          echo 'PUBLIC AVD ONLY. No private Clash Meta source or installation; not a VPN leak test or G5 evidence.' > p008-evidence/NOT_RELEASE.txt
+          find p008-evidence -maxdepth 1 -type f -printf '%f %s\n' > p008-evidence/inventory.txt
+      - name: Upload public AVD diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clashmeta-p008-api36-avd-diagnostics
+          path: p008-evidence/
+          if-no-files-found: warn
