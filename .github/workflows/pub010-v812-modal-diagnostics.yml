@@ -1,0 +1,42 @@
+name: PUB-010 V8.12 Targeted Win32 Modal Status Observation
+on:
+  push:
+    branches: [publisher-v21129-v812-lock-probe-20261113]
+    paths:
+      - '.github/workflows/pub010-v812-modal-diagnostics.yml'
+      - 'ci/pub010_v812/test_native_window_snapshot.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-modal-observability:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore previously proven UIA dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pywinauto==0.6.9
+          if($LASTEXITCODE){throw 'UIA dependency restore failed'}
+      - name: Windows native PID isolated modal, error visibility and safe invoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile ci/pub032v21129/native_installer_uia.py ci/pub010_v812/test_native_window_snapshot.py
+          if($LASTEXITCODE){throw 'Python source syntax error'}
+          python ci/pub010_v812/test_native_window_snapshot.py
+          if($LASTEXITCODE){throw 'Native UIA failure-dialog observability probe failed'}
+      - name: Save non-sensitive diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub010-v812-win32-modal-observability
+          path: out/pub010_v812_modal_snapshot_smoke.json
+          if-no-files-found: warn
+      - name: Preserve unchanged acceptance boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'TEST_SCOPE=controlled Windows modal, NOT actual publisher install'
+          Write-Host 'ORIGINAL_PUB010_PUB027_REMAIN_OPEN=true'
