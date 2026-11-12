@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/pub027-v812-locked-file-minimal.yml'
       - 'ci/pub010_v812/win32_locked_backup_minimal.ps1'
+      - 'ci/pub032v21129/native_installer_uia.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +23,10 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'ci/pub010_v812/win32_locked_backup_minimal.ps1').Path,[ref]$tok,[ref]$errs) | Out-Null
           if($errs.Count){throw "Parser errors: $($errs | Out-String)"}
           Write-Host 'PUB027_V812_TEST_SCRIPT_PARSE_PASS'
+          python -m py_compile ci/pub032v21129/native_installer_uia.py
+          if($LASTEXITCODE){throw 'Actual GUI diagnostic Python syntax error'}
+          python -c "import ast,pathlib; p=pathlib.Path('ci/pub032v21129/native_installer_uia.py'); t=ast.parse(p.read_text('utf-8')); assert any(isinstance(x,ast.FunctionDef) and x.name=='native_snapshot' for x in t.body)"
+          if($LASTEXITCODE){throw 'Win32 diagnostic function not present'}
       - name: Actually test locked workbook Win32 rename and reverse restore
         shell: pwsh
         run: |
