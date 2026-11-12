@@ -203,11 +203,20 @@ def main():
             picker=tap_target(xml,['from .zip','.crx','.user.js'],'extension_file_picker')
             if picker:
                 xml=picker
+                # Android DocumentsUI defaults to Recent, which does not index
+                # sideloaded .zip files. Navigate the actual storage root.
+                roots=tap_target(xml,['Show roots'],'file_picker_roots')
+                if roots:
+                    xml=roots
+                    dl=tap_target(xml,['Downloads','下载'],'file_picker_downloads')
+                    if not dl:
+                        dl=tap_text_any(xml,['Downloads','下载'],'file_picker_downloads_row')
+                    if dl:xml=dl
                 chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip','Kiwi R101 Canary'],'file_pick_direct')
                 if not chosen:
-                    child=tap_target(xml,['Downloads','下载','Internal storage','内部存储'],'file_downloads')
-                    if child:xml=child
-                    chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip','Kiwi R101 Canary'],'file_pick_after_downloads')
+                    chosen=tap_text_any(xml,['Kiwi_R101_Canary_MV2.zip'],'file_pick_label')
+                if not chosen:
+                    state['errors'].append('Canary missing from actual Downloads root listing; see file_picker_downloads screenshot XML')
                 if chosen:
                     xml=chosen
                     consent=tap_target(xml,['Add extension','Install extension','Add','安装扩展','添加扩展'],'extension_confirm')
