@@ -12,6 +12,7 @@ $target=Join-Path $env:LOCALAPPDATA 'Programs\PUB032_P050_Test'
 $excelStub=Join-Path $env:RUNNER_TEMP 'WF_TestOnly_Office15'
 $regPath='HKCU:\SOFTWARE\Microsoft\Office\15.0\Excel\InstallRoot'
 $results=[System.Collections.Generic.List[object]]::new()
+$script:acceptanceError=''
 $QA=@('RUN_P043_ALL_WIN7.cmd','RUN_P043_WIN7.cmd','RUN_P046_ALL_WIN7.cmd','RUN_P047_ALL_WIN7.cmd','RUN_P050_ALL_WIN7.cmd','RUN_P050_FORM_ONLY.cmd')
 $expected=(Get-Content (Join-Path $root 'expected.json') -Raw -Encoding UTF8 | ConvertFrom-Json)
 if($expected.version -ne 'V2.11.2.9' -or $expected.expected_count -ne 34){throw 'Wrong source expectation'}
@@ -27,6 +28,7 @@ public static class NativeWFInstallerTest {
   [DllImport("user32.dll",EntryPoint="GetWindowTextW", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd,StringBuilder sb,int cap);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern IntPtr GetDlgItem(IntPtr hwnd,int id);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr wp,IntPtr lp);
+  [DllImport("user32.dll",SetLastError=true)] public static extern bool IsWindowEnabled(IntPtr hwnd);
 }
 '@
 function Enum-Windows($p){
@@ -45,12 +47,14 @@ function Enum-Windows($p){
 function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit) {
   if(!(Test-Path $path)){throw "Missing real installer: $label"}
   $proc=Start-Process -FilePath $path -PassThru
-  $clicked=$false;$errorSeen=$false;$errorTitle='';$closeSent=$false
+  $clicked=$false;$errorSeen=$false;$errorTitle='';$closeSent=$false;$lastWindows=@()
   try{
-    for($i=0;$i -lt 240;$i++){
+    for($i=0;$i -lt 135;$i++){
       $proc.Refresh()
       if($proc.HasExited){break}
       $windows=@(Enum-Windows $proc)
+      $lastWindows=@($windows | ForEach-Object {"$($_.class):$($_.title)"})
+      if(($i%25) -eq 0){Write-Host "INSTALL_PROGRESS $label tick=$i clicked=$clicked modal=$errorSeen window_count=$($windows.Count)"}
       $main=@($windows | Where-Object {$_.class -eq 'WorkPlatformInstaller'} | Select-Object -First 1)
       if(!$clicked -and $main.Count){
         $h=$main[0].h
@@ -62,21 +66,27 @@ function Run-NativeInstaller([string]$path,[string]$label,[int]$expectedExit) {
       foreach($w in $windows){
         if($w.class -ne '#32770'){continue}
         if($w.title -eq '工作平台 · 安装失败'){
+          if(!$errorSeen){Write-Host "INSTALL_MODAL_DETECTED $label title=$($w.title)"}
           $errorSeen=$true;$errorTitle=$w.title
           [void][NativeWFInstallerTest]::PostMessage($w.h,0x0111,[IntPtr]1,[IntPtr]::Zero)
         }else{throw "Unexpected installer modal for $label; title '$($w.title)' not approved"}
       }
-      if($errorSeen -and !$closeSent -and $main.Count){
+      # Do not close owner while modal is active; show_failure() sets finished
+      # only AFTER MessageBox returns. Wait for enabled close button and retry.
+      $modalPresent=@($windows | Where-Object {$_.class -eq '#32770'}).Count -gt 0
+      if($errorSeen -and !$modalPresent -and $main.Count -and (($i%4) -eq 0)){
         $h=$main[0].h
-        if([NativeWFInstallerTest]::GetDlgItem($h,203) -ne [IntPtr]::Zero){
+        $btn=[NativeWFInstallerTest]::GetDlgItem($h,203)
+        if($btn -ne [IntPtr]::Zero -and [NativeWFInstallerTest]::IsWindowEnabled($btn)){
           [void][NativeWFInstallerTest]::PostMessage($h,0x0111,[IntPtr]203,[IntPtr]::Zero)
           $closeSent=$true
+          Write-Host "INSTALL_FAIL_DIALOG_CLOSED $label post_close_tick=$i"
         }
       }
       Start-Sleep -Milliseconds 500
     }
     $proc.Refresh()
-    if(!$proc.HasExited){throw "Timeout waiting for actual installer: $label"}
+    if(!$proc.HasExited){throw "Timeout waiting for actual installer: $label;clicked=$clicked;error_modal=$errorSeen;windows=$($lastWindows -join ',')"}
     if(!$clicked){throw "Installer GUI never received ID_INSTALL command: $label"}
     $exit=[int]$proc.ExitCode
     $row=@{case=$label;process_exit=$exit;expected_exit=$expectedExit;native_gui_clicked=$clicked;error_modal_seen=$errorSeen;
@@ -138,8 +148,6 @@ try{
   # Negative install on a runner with no Office executable: protection must refuse.
   $possible=@(Get-ChildItem 'C:\Program Files\Microsoft Office','C:\Program Files (x86)\Microsoft Office' -Filter EXCEL.EXE -Recurse -ErrorAction SilentlyContinue)
   if($possible.Count){throw 'Cannot perform no-Office negative test: Office executable already present'}
-  Run-NativeInstaller $pkg28 'no_office_fail_closed' 2402
-  if(Test-Path $target){throw 'Negative gate unexpectedly created installation directory'}
   # Temporary mock only checks if filesystem installation & trust registry protocols execute.
   # This is NOT genuine Office/Excel and does not authorize any macro operations.
   New-Item -ItemType Directory -Force $excelStub | Out-Null
@@ -166,13 +174,26 @@ try{
   if($afterDigest -ne $oldDigest){throw 'Original workbook changed after locked-file failure'}
   Verify-UserData $userData 'failed_backup_original_data_unchanged'
   $results.Add(@{case='upgrade34to28_qa_retention';qa_cmd_remaining=$oldQaCount;needs_product_policy_decision=($oldQaCount -gt 0)})
+  Write-Host "NATIVE_INSTALL_MAIN_CASES_COMPLETED;oldQA_retained=$oldQaCount"
+  # Verify no-Office refusal LAST, after successful filesystem transaction cases.
+  # Negative gate must not touch the already installed workbook.
+  $beforeGate=(Get-FileHash -LiteralPath $workbook -Algorithm SHA256).Hash.ToLowerInvariant()
+  if(Test-Path $regPath){Remove-Item -Path $regPath -Recurse -Force -ErrorAction Stop}
+  Run-NativeInstaller $pkg28 'no_office_fail_closed' 2402
+  $afterGate=(Get-FileHash -LiteralPath $workbook -Algorithm SHA256).Hash.ToLowerInvariant()
+  if($beforeGate -ne $afterGate){throw 'No-Office refusal changed existing workbook'}
   Write-Host "NATIVE_INSTALL_ACCEPTANCE_COMPLETED;oldQA_retained=$oldQaCount"
+}catch{
+  $script:acceptanceError=$_.Exception.Message
+  Write-Host "NATIVE_INSTALL_ACCEPTANCE_ERROR=$($script:acceptanceError)"
+  throw
 }finally{
   if(Test-Path $regPath){Remove-Item -Path $regPath -Recurse -Force -ErrorAction SilentlyContinue}
   if(Test-Path $excelStub){Remove-Item -LiteralPath $excelStub -Recurse -Force -ErrorAction SilentlyContinue}
   # Never remove existing user files outside our exact test installation target.
+  @{version='V2.11.2.9 RC1';host='Windows Server 2022';
+    office='SIMULATED FILE PRESENCE, NOT EXCEL';real_p050_input=$true;
+    real_installers_executed=($results.Count -gt 0);true_excel_macro_tested=$false;
+    cases=$results;overall=(!$script:acceptanceError);error=$script:acceptanceError} | ConvertTo-Json -Depth 10 |
+    Set-Content (Join-Path $out 'pub032_v21129_native_install_acceptance.json') -Encoding UTF8
 }
-@{version='V2.11.2.9 RC1';host='Windows Server 2022';office='SIMULATED FILE PRESENCE, NOT EXCEL';
-real_p050_input=$true;real_installers_executed=$true;true_excel_macro_tested=$false;
-cases=$results;overall=$true} | ConvertTo-Json -Depth 10 |
-  Set-Content (Join-Path $out 'pub032_v21129_native_install_acceptance.json') -Encoding UTF8
