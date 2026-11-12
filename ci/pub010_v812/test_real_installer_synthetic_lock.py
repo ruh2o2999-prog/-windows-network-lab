@@ -53,7 +53,7 @@ try:
     if handle in (None,ctypes.c_void_p(-1).value):raise RuntimeError("Failed to exclusively lock installed workbook")
     # Error path MUST manifest WF-3060, and the UIA must close the actual error dialog.
     fail=gui("locked_workbook_backup_failure",timeout=35)
-    if not fail["failure_modal_seen"] or not fail["modal_uia_ok"] or fail["WF_error"]!=3060:
+    if not fail["failure_modal_seen"] or not fail.get("modal_acknowledged") or fail["WF_error"]!=3060:
         raise AssertionError("Locked-file failure did not show+close real WF-3060 modal")
     # GUI process exit=0 on WM_DESTROY is not the WF error-code contract.
     result["failure_process_exit"]=fail.get("exit_code")
