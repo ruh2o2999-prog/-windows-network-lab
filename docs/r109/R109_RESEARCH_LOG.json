@@ -1,0 +1,70 @@
+{
+  "stage": "R109",
+  "date": "2026-11-12",
+  "issue": "R108-EXPORT-01 / R108-ZIP-01",
+  "status": "IN_PROGRESS",
+  "frozen_product": {
+    "version": "V0.4.58 MV2",
+    "sha256": "32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479",
+    "source_changes": false
+  },
+  "prior_evidence": [
+    {
+      "run": 43197003529,
+      "truth": "Android Kiwi force-stop/relaunch, original completed task request count 36 in history",
+      "failure": "export button Accessibility bounds [0,0]; no real historical ZIP"
+    },
+    {
+      "run": 43198602235,
+      "truth": "Formal plugin reloaded after force-stop",
+      "failure": "history accordion unreachable through long page gesture; not proof of missing IndexedDB"
+    }
+  ],
+  "original_code": [
+    {
+      "file": "panel.html",
+      "selector": "details#capture-history / #capture-history-list"
+    },
+    {
+      "file": "panel.js",
+      "function": "renderCaptureHistory",
+      "details": "dynamic .r39-history-row; original distinct button click -> exportHistoricalTask(captureSessionId)"
+    },
+    {
+      "file": "panel.js",
+      "function": "exportHistoricalTask",
+      "details": "CAPTURE_TRACE_READ, response and blob attachments, ZIP downloadable without website re-request"
+    }
+  ],
+  "mature_routes": [
+    {
+      "id": "CDP",
+      "source": "https://github.com/GoogleChrome/developer.chrome.com/blob/main/site/en/docs/devtools/remote-debugging/index.md",
+      "role": "adb forward to chrome_devtools_remote; validate target before Runtime.evaluate"
+    },
+    {
+      "id": "CDP-Runtime",
+      "source": "https://chromedevtools.github.io/devtools-protocol/tot/Runtime/",
+      "role": "Browser native JS eval in actual original extension page, call original listener; no product patch"
+    },
+    {
+      "id": "Native-UiAutomator2",
+      "source": "https://appium.github.io/appium-uiautomator2-driver/latest/troubleshooting/",
+      "role": "fallback to original visible click path after explicit outer/nested scroll; no [0,0] clicks"
+    },
+    {
+      "id": "Known-scroll-limit",
+      "source": "https://github.com/appium/appium-uiautomator2-driver/issues/728",
+      "role": "avoid assuming every scrollGesture success means movement"
+    }
+  ],
+  "frozen_acceptance": [
+    "real Android Kiwi actual old/new PID",
+    "original completed task precisely selected (no wrong task)",
+    "actual old historical ZIP downloaded and adb pull with CRC",
+    "same captureSessionId and trace identities before/after",
+    "36 original response bodies with matching cryptographic SHA256",
+    "no synthetic or URL-only parity as proof"
+  ],
+  "known_limits": "Android 11 Google APIs x86_64 emulator; no physical Samsung validation; unexpected mid-capture OOM and 512MiB MSE remain independent open tests"
+}
