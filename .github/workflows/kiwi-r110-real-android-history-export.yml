@@ -86,9 +86,29 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: python3 kiwi-r104-lab/r104-production-network-test.py
+      # R111 REAL EXPORTS: the only raw ZIPs are under /tmp on the ephemeral runner.
+      # Export to public Artifact ONLY as RSA-recipient-encrypted CMS ciphertext.
+      # The receiver private key is never present in GitHub or the runner.
+      - name: R111 encrypt actual before-and-after Android ZIP evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 kiwi-r110-lab/r111_archive_android_exports.py \
+            --before /tmp/r103-export-recovered.zip \
+            --after /tmp/r108-real-post-restart-historical.zip \
+            --out out/r111_secure_raw_exports \
+            --cert kiwi-r110-lab/certs/r111_receiver_public.crt \
+            --expected-cert-sha 8656cbdbb793f979cc4b9c5cd9ccbb9486199d3a0a9d345476fee8e6330e1b36 \
+            --status out/status.json \
+            --before-manifest out/r103_export_zip_manifest.json \
+            --after-manifest out/r108_historical_real_download_manifest.json \
+            --verifier kiwi-r108-lab/r108_offline_recovery_parity.py \
+            --run-id "${GITHUB_RUN_ID}"
+          test -s out/r111_secure_raw_exports/R111_android_real_before.zip.p7m
+          test -s out/r111_secure_raw_exports/R111_android_real_historical.zip.p7m
       - name: Remove transient decrypted formal ZIP
         if: always()
-        run: rm -f /tmp/kiwi-r104-production.zip /tmp/r103-private-key.pem
+        run: rm -f /tmp/kiwi-r104-production.zip /tmp/r103-private-key.pem /tmp/r103-export-recovered.zip /tmp/r108-real-post-restart-historical.zip
       - name: Preserve only logs, screenshots and structured results (never package)
         if: always()
         uses: actions/upload-artifact@v4
