@@ -49,6 +49,22 @@ def tap_target(xml,keys,label):
     print('TAP '+label+': '+txt[:130],flush=True)
     return snapshot(label)
 
+def type_internal_url(url,label):
+    """Navigate browser internal URL via its own omnibox; Android VIEW cannot resolve chrome://."""
+    xml=snapshot('before_omni_'+label)
+    target=clickable(xml,['Search or type web address','Search or type URL','Search or type','Address bar','搜索或输入网址','地址栏'])
+    if target:
+        x,y,_=target
+    else:
+        x,y=540,115  # 1080px Android AVD: fallback, with screenshot evidence
+    rc,msg=run(['adb','shell','input','tap',str(x),str(y)])
+    time.sleep(1)
+    run(['adb','shell','input','text',url])
+    run(['adb','shell','input','keyevent','66'])
+    time.sleep(8)
+    print('OMNIBOX_NAV '+label+' '+url+' '+str((x,y)),flush=True)
+    return snapshot('omni_'+label)
+
 def canary():
     path=OUT/'Kiwi_R101_Canary_MV2.zip'
     manifest={'manifest_version':2,'name':'Kiwi R101 Probe','version':'0.0.1',
@@ -64,6 +80,8 @@ def canary():
 def main():
     rc,txt=run(['adb','shell','getprop','sys.boot_completed'])
     log_gate('A0_android_boot',rc==0 and txt.strip()=='1',txt)
+    gms_rc,gms_text=run(['adb','shell','pm','path','com.google.android.gms'])
+    log_gate('A0b_google_play_services',gms_rc==0 and 'package:' in gms_text,gms_text)
     apk=Path('kiwi-official-x64.apk')
     if not apk.is_file():
         log_gate('A1_official_apk_present',False,'official APK not downloaded')
@@ -79,8 +97,12 @@ def main():
     time.sleep(10)
     xml=snapshot('kiwi_launch')
     _,activity=run(['adb','shell','dumpsys','activity','activities'],timeout=35)
-    launch_ok=PKG in activity and 'Events injected: 1' in txt
-    log_gate('A3_kiwi_running',launch_ok,txt[:350]+' active='+str(PKG in activity))
+    blocker='won\'t run without Google Play services' in xml or 'Google Play services' in xml
+    launch_ok=PKG in activity and 'Events injected: 1' in txt and not blocker
+    log_gate('A3_kiwi_running',launch_ok,txt[:350]+' active='+str(PKG in activity)+' blocking_play_services_dialog='+str(blocker))
+    if blocker:
+        state['errors'].append('Official Kiwi blocked by Google Play Services dialog; test must switch system-image target')
+        return
     # Dismiss optional first-run screens based on *actual* accessible node labels.
     for i in range(3):
         node=clickable(xml,['accept','agree','continue','get started','start browsing','同意','继续','开始使用'])
@@ -98,6 +120,10 @@ def main():
         time.sleep(7);xml=snapshot('extensions_fallback')
         reachable=('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
         log_gate('A4b_chrome_extensions_fallback',reachable,txt[:300])
+        if not reachable:
+            xml=type_internal_url('chrome://extensions/','internal_extensions')
+            reachable=('Extensions' in xml or 'extension' in xml.lower() or '扩展' in xml)
+            log_gate('A4c_omnibox_extension_manager',reachable,'browser-internal chrome://extensions omnibox navigation')
     ext=canary()
     rc,txt=run(['adb','push',str(ext),'/sdcard/Download/Kiwi_R101_Canary_MV2.zip'])
     log_gate('A5a_canary_staged',rc==0,txt)
