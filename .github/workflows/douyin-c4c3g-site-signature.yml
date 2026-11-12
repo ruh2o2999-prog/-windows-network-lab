@@ -1,9 +1,9 @@
 name: Douyin C4C3G One Site-Issued Legacy Signature Cursor Trial
 on:
   push:
-    branches: [douyin-c4c3g-server-cursor-20261113]
+    branches: [douyin-c4c3g-site-signature-20261113]
     paths:
-      - '.github/workflows/douyin-c4c3g-server-cursor.yml'
+      - '.github/workflows/douyin-c4c3g-site-signature.yml'
       - 'c4c3g_public_probe/C4C3G_public_probe.zip.b64'
 # Intentionally no workflow_dispatch to prevent repetitive manual probing.
 permissions:
