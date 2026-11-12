@@ -1,3 +1,4 @@
+param([switch]$ExcludeQa)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $root = Join-Path $env:RUNNER_TEMP 'pub032v21128'
@@ -6,7 +7,9 @@ $exe = Join-Path $root 'publisher.exe'
 $expected = Get-Content (Join-Path $root 'expected.json') -Raw | ConvertFrom-Json
 $outDir = Join-Path (Get-Location) 'out'
 New-Item -ItemType Directory -Force $outDir | Out-Null
-$outExe = Join-Path $outDir 'PUB032_V21128_34_REAL_P050_INSTALL.exe'
+$outExe = Join-Path $outDir $(if($ExcludeQa){'PUB032_V21128_28_EXCLUDE_QA_INSTALL.exe'}else{'PUB032_V21128_34_REAL_P050_INSTALL.exe'})
+$reportName = if($ExcludeQa){'pub032_v21128_28_publisher_report.json'}else{'pub032_v21128_publisher_report.json'}
+$traceName = if($ExcludeQa){'pub032_v21128_28_gui_trace.json'}else{'pub032_v21128_gui_trace.json'}
 $trace = [System.Collections.Generic.List[object]]::new()
 $successPopup = $false
 $errorPopup = $false
@@ -207,10 +210,13 @@ try {
           $acceptedConfirm=$true
         }
       }elseif($w.title -eq '安装资源与依赖预览'){
-        $trace.Add(@{kind='actual_resource_preview';title=$w.title;action='KEEP_ALL_ID6701'})
-        $keep=[PUB032V5Win]::GetDlgItem($w.handle,6701)
-        if($keep -eq [IntPtr]::Zero){throw 'Actual resource preview lacks KEEP_ALL button ID6701'}
-        if(![PUB032V5Win]::PostMessage($w.handle,0x0111,[IntPtr]6701,[IntPtr]::Zero)){throw 'Failed to select explicit KEEP ALL option'}
+        $choice = if($ExcludeQa){6702}else{6701}
+        $label = if($ExcludeQa){'EXCLUDE_SIX_QA_ID6702'}else{'KEEP_ALL_ID6701'}
+        $trace.Add(@{kind='actual_resource_preview';title=$w.title;action=$label})
+        $ctl=[PUB032V5Win]::GetDlgItem($w.handle,$choice)
+        if($ctl -eq [IntPtr]::Zero){throw "Resource preview option missing: $label"}
+        if(![PUB032V5Win]::IsWindowEnabled($ctl)){throw "Resource preview option disabled: $label"}
+        if(![PUB032V5Win]::PostMessage($w.handle,0x0111,[IntPtr]$choice,[IntPtr]::Zero)){throw "Failed to select resource preview option: $label"}
       }elseif($w.title -eq '生成完成'){
         $trace.Add(@{kind='publish_success_modal';title=$w.title})
         $successPopup=$true
@@ -243,11 +249,13 @@ try {
     generated_install_exe_sha256=$sha
     generated_install_exe_bytes=(Get-Item $outExe).Length
     new_version_V21128_tested=$true
+    excluded_six_qa=$ExcludeQa
+    expected_payload_file_count=$(if($ExcludeQa){28}else{34})
     trace=$trace
   }
-  $report | ConvertTo-Json -Depth 9 | Set-Content (Join-Path $outDir 'pub032_v21128_publisher_report.json') -Encoding utf8
+  $report | ConvertTo-Json -Depth 9 | Set-Content (Join-Path $outDir $reportName) -Encoding utf8
   Write-Host 'PUB032_V21128_REAL_PUBLISHER_GUI_GENERATED_INSTALLER'
 } finally {
   if($p -and !$p.HasExited){if($main -ne [IntPtr]::Zero){[void][PUB032V5Win]::PostMessage($main,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)};Start-Sleep -Seconds 1; if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}
-  $trace | ConvertTo-Json -Depth 9 | Set-Content (Join-Path $outDir 'pub032_v21128_gui_trace.json') -Encoding utf8
+  $trace | ConvertTo-Json -Depth 9 | Set-Content (Join-Path $outDir $traceName) -Encoding utf8
 }
