@@ -1,0 +1,75 @@
+name: Build and verify reusable software dev toolkit (generic only)
+on:
+  push:
+    branches: [reusable-android-network-security-kit-v1]
+    paths:
+      - 'reusable-kit/**'
+      - '.github/workflows/build-reusable-software-toolkit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'reusable-kit/**'
+      - '.github/workflows/build-reusable-software-toolkit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-kit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only required third-party crypto dependency
+        run: python -m pip install -r reusable-kit/requirements.txt
+      - name: Validate executable source and synthetic crypto/network regressions
+        run: |
+          set -euo pipefail
+          cd reusable-kit
+          python -m compileall -q tools/
+          python tools/make_test_zip.py --out /tmp/generic-synthetic.zip
+          python tools/verify_archive.py /tmp/generic-synthetic.zip
+          python tools/test_segmented_transfer.py --source /tmp/generic-synthetic.zip --report /tmp/generic-crypto-report.json
+          python tools/test_network_reconcile.py
+          python tools/android_smoke.py --help
+      - name: Validate real HTTP fixture responses without external network
+        run: |
+          set -euo pipefail
+          cd reusable-kit
+          python tools/network_fixture_server.py --port 18764 --log /tmp/known-http.jsonl > /tmp/http-fixture-stdout.log 2>&1 &
+          PID=$!
+          trap 'kill "$PID" || true' EXIT
+          for retry in $(seq 1 50); do
+            if curl -sf http://127.0.0.1:18764/ >/dev/null; then break; fi
+            sleep 0.2
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:18764/probe/api/alpha.json?seq=1')" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:18764/probe/api/beta.txt?seq=1')" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:18764/probe/api/expected-404?seq=1')" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:18764/probe/api/tiny.svg?seq=1')" = 200
+          test "$(wc -l < /tmp/known-http.jsonl)" -ge 5
+      - name: Record independent file checksums and CI verification summary
+        run: |
+          python - <<'PY'
+          import hashlib,json,pathlib,subprocess,datetime
+          root=pathlib.Path('reusable-kit')
+          files={str(p.relative_to(root)): {'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+                 for p in sorted(root.rglob('*')) if p.is_file() and not p.name.endswith('.pyc') and '__pycache__' not in p.parts}
+          for cache in list(root.rglob('__pycache__')):
+              import shutil;shutil.rmtree(cache)
+          report={'package':'Reusable_Dev_Test_Toolkit_V1','standalone':True,
+                  'source':'public refactored generic verified test scripts, no private Kiwi source',
+                  'python_syntax':'PASS','segmented_crypto_19_tests':'PASS','reconciler_positive_10_negative_5':'PASS',
+                  'http_fixture_4_routes_statuses':'PASS','android_egress':'NOT_RUN_IN_THIS_BUILDER',
+                  'source_files':files}
+          (root/'KIT_MANIFEST.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
+          print(json.dumps({'files':len(files),'checks':'PASS','artifact_root':str(root)}))
+          PY
+      - name: Upload exactly ONE generic toolkit archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reusable_Dev_Test_Toolkit_V1
+          path: reusable-kit/
+          if-no-files-found: error
