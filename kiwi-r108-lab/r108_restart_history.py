@@ -131,8 +131,8 @@ def execute(formal_zip,run,snapshot,state,OUT,fixture_url):
         # The UI asynchronously asks background CAPTURE_TASK_LIST.
         time.sleep(4);xml=snapshot('r108_history_after_async_load')
         request_marker='请求 '+str(len(pre['requests']))
-        history_visible=('观察任务' in xml and ('已结束' in xml or '开始时间' in xml)) or
-                        ('历史任务' in xml and '请求 ' in xml)
+        history_visible=(('观察任务' in xml and ('已结束' in xml or '开始时间' in xml)) or
+                         ('历史任务' in xml and '请求 ' in xml))
         result['debug']['history_text_samples']=[x for x in re.findall(r'text="([^"]+)"',xml)
               if '观察' in x or '请求' in x or '历史' in x][:50]
         evidence_gate(result,'R108_09_history_rows_accessible',history_visible,
