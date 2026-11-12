@@ -450,8 +450,9 @@ def main():
     if downloaded and zip_ok and r104_start_ns and r104_end_ns:
         try:
             sys.path.insert(0,str(Path('kiwi-r108-lab').absolute()))
-            from r108_restart_history import execute as r108_execute
-            r108_execute(Path('/tmp/r103-export-recovered.zip'),run,snapshot,state,OUT,fixture_url,type_internal_url)
+            sys.path.insert(0,str(Path('kiwi-r109-lab').absolute()))
+            from r109_history_recovery import execute as r109_execute
+            r109_execute(Path('/tmp/r103-export-recovered.zip'),run,snapshot,state,OUT,fixture_url,type_internal_url)
         except Exception as e:
             log_gate('R108_99_automation_exception',False,repr(e))
     else:
