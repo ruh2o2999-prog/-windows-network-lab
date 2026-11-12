@@ -1,0 +1,1 @@
+R112 HF1 rerun: first Run 43288062501 failed before first R112 gate because Ubuntu runner lacks ffmpeg. Reuse frozen R93 synthetic AV fixture 116985 bytes SHA256 1062cc... verify inside runner, same authentic Kiwi test; original 36 response history tests previously passed. Do not change product.
