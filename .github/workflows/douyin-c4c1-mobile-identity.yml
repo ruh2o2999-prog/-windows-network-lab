@@ -20,7 +20,7 @@ jobs:
           set -euo pipefail
           mkdir -p c4c1_exp
           base64 --decode c4c1_public_probe/C4C1_public_probe.zip.b64 > c4c1_exp/checkpoint.zip
-          echo '06b761cf586a7ae174c38b735ddfd330726299f303d3d6f076e2cc9ac2e344c8  c4c1_exp/checkpoint.zip' | sha256sum -c -
+          echo '39e08269e0fdf876f1d3e7738d0b831a3cccbed398af81e3d904b3c9bf6a5fcf  c4c1_exp/checkpoint.zip' | sha256sum -c -
           unzip -q c4c1_exp/checkpoint.zip -d c4c1_exp
           (cd c4c1_exp && sha256sum -c SHA256SUMS.txt)
           bash -n c4c1_exp/run_android11.sh
