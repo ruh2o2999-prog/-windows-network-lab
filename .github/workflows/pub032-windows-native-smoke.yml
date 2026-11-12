@@ -102,6 +102,50 @@ jobs:
           }
           $report | ConvertTo-Json -Depth 5 | Set-Content -Path 'out/pub032_windows_native_report.json' -Encoding utf8
           Get-Content 'out/pub032_windows_native_report.json'
+      - name: Probe hosted runner native Win32 desktop availability (diagnostic)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if (!$vs) { throw 'Missing Visual C++ compiler' }
+          $vcvars=Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          $cmd=@"
+          @echo off
+          call "$vcvars" >nul
+          cl.exe /nologo /W4 /WX /O2 /Fe:out\pub032_gui_probe.exe ci\publisher\pub032_gui_probe.c /link /SUBSYSTEM:WINDOWS user32.lib
+          "@
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'out\compile_gui.cmd'),$cmd,[Text.Encoding]::ASCII)
+          & cmd.exe /c 'out\compile_gui.cmd'
+          if ($LASTEXITCODE -ne 0) { throw 'GUI probe compile failed' }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class P32Probe {
+            [DllImport("user32.dll",CharSet=CharSet.Unicode)]
+            public static extern IntPtr FindWindow(string cls,string name);
+          }
+          '@
+          $p=Start-Process -FilePath (Resolve-Path 'out/pub032_gui_probe.exe').Path -PassThru
+          $found=$false
+          for($i=0;$i -lt 15;$i++){
+            if([P32Probe]::FindWindow('PUB032GUIProbe',$null) -ne [IntPtr]::Zero){$found=$true;break}
+            if($p.HasExited){break}
+            Start-Sleep -Seconds 1
+          }
+          $r=[ordered]@{
+            diagnostic='PUB032 Win32 hosted desktop visibility only'
+            host_session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+            user_interactive=[Environment]::UserInteractive
+            probe_session=$p.SessionId
+            probe_exited=$p.HasExited
+            probe_exit_code=$(if($p.HasExited){$p.ExitCode}else{$null})
+            window_found=$found
+            result=$(if($found){'GUI window accessible'}else{'GUI unavailable, wrong desktop, or probe startup failure'})
+          }
+          $r | ConvertTo-Json | Set-Content 'out/pub032_gui_probe_report.json'
+          $r | ConvertTo-Json | Write-Host
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
       - name: Save evidence only (no source or private package)
         uses: actions/upload-artifact@v4
         if: always()
@@ -110,4 +154,5 @@ jobs:
           path: |
             out/pub032_windows_native_report.json
             out/native_proof.txt
+            out/pub032_gui_probe_report.json
           if-no-files-found: warn
