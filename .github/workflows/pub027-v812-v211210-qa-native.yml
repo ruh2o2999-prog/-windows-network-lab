@@ -1,0 +1,129 @@
+name: PUB-027 V8.12 V2.11.2.10 Native SHA-Proven QA Upgrade
+on:
+  push:
+    branches: [publisher-v21129-v812-lock-probe-20261113]
+    paths:
+      - '.github/workflows/pub027-v812-v211210-qa-native.yml'
+      - 'ci/pub010_v812/test_v211210_native_qa_proof_upgrade.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  native-hash-proof-qa-upgrade:
+    runs-on: windows-2022
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create transient RSA3072 cert and publish public certificate only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force out,exchange | Out-Null
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $key=Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_key.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_cert.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=PUB027V812QASynthetic/' 2>$null
+          if($LASTEXITCODE){throw 'Ephemeral cert generation failed'}
+          $out="exchange/pub027-v812-v211210-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $out
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $out
+          git commit -m "ci: ephemeral PUBLIC certificate for V2.11.2.10 QA proof test $env:GITHUB_RUN_ID"
+          if($LASTEXITCODE){throw 'Cert commit failure'}
+          git push origin HEAD:publisher-v21129-v812-lock-probe-20261113
+          if($LASTEXITCODE){throw 'Cert push failure'}
+          Write-Host "PUB027_V812_V211210_PUBLIC_CERT_READY=$out"
+      - name: Receive one-use CMS encrypted 9-to-3 file installer package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $branch='publisher-v21129-v812-lock-probe-20261113'
+          $prefix="exchange/pub027-v812-v211210-run-$env:GITHUB_RUN_ID.p7m.b64"
+          $cipher=Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_payload.p7m'
+          $allPresent=$false
+          for($attempt=0;$attempt -lt 150;$attempt++){
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if($LASTEXITCODE){throw 'Cannot fetch encrypted handoff'}
+            $joined=[System.Text.StringBuilder]::new()
+            $complete=$true
+            for($n=1;$n -le 6;$n++){
+              $p=('{0}.part{1:D2}' -f $prefix,$n)
+              $part=git show "origin/${branch}:$p" 2>$null
+              if($LASTEXITCODE -ne 0 -or !$part){$complete=$false;break}
+              [void]$joined.Append(($part -join '').Trim())
+            }
+            if($complete){
+              [IO.File]::WriteAllBytes($cipher,[Convert]::FromBase64String($joined.ToString()))
+              $allPresent=$true
+              break
+            }
+            Start-Sleep -Seconds 2
+          }
+          if(!$allPresent){throw 'Encrypted fixture upload not received; no binary executed'}
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $plain=Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_payload.zip'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip (Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_cert.crt') -inkey (Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_key.pem') -out $plain
+          if($LASTEXITCODE){throw 'Decryption failed'}
+          $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -ne '6faeb8824d01b071ae6e9576b941fef90ee967f792a7c24f81ba7800b4b695d8'){throw "Wrong encrypted fixture SHA: $digest"}
+          $dest=Join-Path $env:RUNNER_TEMP 'pub027_v812_qa_proof'
+          $env:QA_PROOF_TEST_ZIP=$plain
+          $env:QA_PROOF_TEST_DEST=$dest
+          @'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import os
+          f=Path(os.environ["QA_PROOF_TEST_ZIP"])
+          dest=Path(os.environ["QA_PROOF_TEST_DEST"])
+          expected={"v812_old_9files.exe","v812_new_3files_qa6proof.exe","fixture_manifest.json"}
+          with ZipFile(f) as z:
+              assert set(z.namelist())==expected
+              assert z.testzip() is None
+              z.extractall(dest)
+          print("PUB027_V812_ENCRYPTED_FIXTURE_DECRYPTED_AND_SHA256_VERIFIED")
+          '@ | python -
+          if($LASTEXITCODE){throw 'Decrypted manifest validation failed'}
+          Remove-Item $plain,$cipher,(Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_key.pem') -Force -ErrorAction SilentlyContinue
+      - name: Native V2.11.2.9 to V2.11.2.10 installer QA exclusion upgrade and modified-file protection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check pywinauto==0.6.9
+          if($LASTEXITCODE){throw 'UI automation dependency missing'}
+          python -m py_compile ci/pub032v21129/native_installer_uia.py ci/pub010_v812/test_v211210_native_qa_proof_upgrade.py
+          if($LASTEXITCODE){throw 'Actual native test Python parsing failed'}
+          python ci/pub010_v812/test_v211210_native_qa_proof_upgrade.py
+          if($LASTEXITCODE){throw 'Real installer native SHA-pinned QA upgrade regression failed'}
+      - name: Privacy cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($name in @('pub027_v812_qa_proof','pub027_qa_211210_key.pem','pub027_qa_211210_cert.crt','pub027_qa_211210_payload.zip','pub027_qa_211210_payload.p7m')){
+            $f=Join-Path $env:RUNNER_TEMP $name
+            if(Test-Path $f){Remove-Item $f -Force -Recurse -ErrorAction SilentlyContinue}
+          }
+          Write-Host 'EPHEMERAL_PRIVATE_BINARY_REMOVED'
+      - name: Save sanitized native upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pub027-v812-v211210-native-qa-proof-sanitized-evidence
+          path: |
+            out/pub027_v812_native_qa_proof_upgrade.json
+            out/pub027_v812_install_old_9_files.json
+            out/pub027_v812_upgrade_new_3_files_with_exclusion_proof.json
+            out/pub027_v812_reintroduce_old_9_files.json
+            out/pub027_v812_upgrade_modified_qa_untouched.json
+          if-no-files-found: warn
+      - name: Preserve honest test boundary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host 'TEST_FIXTURE=hand-built V6 synthetic 9-to-3 with six real QA names'
+          Write-Host 'GENUINE_P050_34_TO_28_NOT_RUN=true'
+          Write-Host 'ORIGINAL_36_PUB_ISSUES_REMAIN_OPEN=true'
