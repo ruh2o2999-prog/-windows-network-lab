@@ -4,20 +4,20 @@
 
 ## 前提与结果
 
-- GitHub Actions Run `43173327115`、Job `131031557045` 全部成功。
+- GitHub Actions Run `43173327115`、Job `131031557045` 初轮成功；**强化逐数相等 Run `43174346176` 复测成功**。
 - 官方 Kiwi Android x64 release `14310011181`，Android 11 API 30 `google_apis` x86_64，Ubuntu 24.04 Runner + KVM。
 - 在真实 Kiwi 浏览器中安装 MV2 扩展，启用后台页 `chrome.webRequest.onCompleted` 以及明确的 `webRequest`、本地 HTTP 主机权限。
 - 通过 `adb reverse tcp:18764 tcp:18764` 访问受控 HTTP 服务；真实服务器产生和记录 `/r104/api/alpha.json`、`beta.txt`、`expected-404`、`tiny.svg` 每路径 9 次，合计 **36** 次。
-- Kiwi 页面可访问性输出由真实扩展背景回调传递的计数：**36**。
-- HTTP 404 请求数量：服务器真实收到 9 次；扩展后台 404 回调检查通过（>=2）。
+- Kiwi 页面可访问性输出由真实扩展背景回调传递的计数：**36**；第二轮门禁硬性要求 `extension_count == server_count`，成功验证 **36/36**。
+- HTTP 404 请求数量：服务器真实收到 **9** 次；强化复测中扩展 404 回调 **9** 次，硬性要求相等，**9/9 PASS**。
 - 独立真实 Android 运行、扩展安装、页面脚本注入、ADB reverse、四类 HTTP 请求、MV2 事件监听均在 CI 返回 PASS。
-- 原始 Artifact ID `13923790661`；原始证据 ZIP `Kiwi_R105_Real_WebRequest_Android_Evidence.zip`，包含原执行脚本、HTML/UI XML、PNG、受控请求日志和状态文件。
+- 初轮 Artifact ID `13923790661`；强化复测 Run `43174346176` Artifact ID `13924285746`，大小 2,323,446 字节；原始证据 ZIP `Kiwi_R105_Real_WebRequest_Android_Evidence.zip` 及强化复测 `Kiwi_R105_Exact_WebRequest_Android_Evidence.zip`，包含原执行脚本、HTML/UI XML、PNG、受控请求日志和状态文件。
 
 ## 严禁误销项
 
 | 事项 | 状态 |
 |---|---|
-| R105 公共独立 MV2 宿主 webRequest 完成事件能力 | **SUB_PASS** |
+| R105 公共独立 MV2 宿主 webRequest 完成事件能力 | **SUB_PASS（强化复测 36/36）** |
 | R105 404 完成事件能力 | **SUB_PASS** |
 | R103 正式 MV2 插件安装/侧栏/下载/ZIP 结构 | **继承原证据 SUB_PASS** |
 | R104 正式 MV2 requests.json + HAR + Trace **逐事件强一致** | **NOT_RUN** |
