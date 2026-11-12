@@ -160,11 +160,19 @@ def verify(export_zip,server_jsonl,start_ns,end_ns,report_path,controlled_zip=No
             z.writestr("Network/cdp_response_index.json",json.dumps(restricted,ensure_ascii=False,indent=2))
             for path in sorted(allowed):z.writestr(path,filtered_bytes[path])
             z.writestr("R107/independent_server_controlled_only.json",json.dumps(truth,ensure_ascii=False,indent=2))
+            z.writestr("R107/independent_server_truth.jsonl",
+              '\n'.join(json.dumps({"url":r["signature"][0]+"?seq="+str(r["signature"][1]),
+                  "status":r["status"],"bytes":r["bytes"],"body_sha256":r["sha256"],
+                  "time_ns":r["time_ns"]}) for r in truth)+'\n')
+            z.writestr("R107/replay_parameters.json",json.dumps({
+                "start_ns":start_ns,"end_ns":end_ns,"min_events":min_events,
+                "scope":"only synthetic localhost routes"}))
         details["synthetic_only_repro_zip"]={"path":out.name,"bytes":out.stat().st_size,"sha256":sha(out.read_bytes())}
     report={"scope":"formal MV2 V0.4.58 + actual Android Kiwi, controlled localhost fixture only",
             "gates":gates,"summary":{"passed":sum(x["status"]=="PASS" for x in gates.values()),
                                       "failed":sum(x["status"]=="FAIL" for x in gates.values())},
             "raw_wire_equivalence":"NOT_CLAIMED","response_scope":"browser-visible decoded body",
+            "validated_window_ns":[start_ns,end_ns],"min_events":min_events,
             "full_original_export_not_uploaded_publicly":True,
             "repro":details}
     out=pathlib.Path(report_path);out.parent.mkdir(parents=True,exist_ok=True)
