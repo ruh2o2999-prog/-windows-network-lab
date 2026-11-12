@@ -1,0 +1,220 @@
+name: PUB-032 Windows native PE proof (synthetic only)
+on:
+  push:
+    branches: [publisher-pub032-win-native-20261112]
+    paths:
+      - '.github/workflows/pub032-windows-native-smoke.yml'
+      - 'ci/publisher/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/pub032-windows-native-smoke.yml'
+      - 'ci/publisher/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pub032-windows-native:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect Windows host and initialize evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force out | Out-Null
+          $os = Get-CimInstance Win32_OperatingSystem
+          Write-Host "PUB032_HOST: $($os.Caption) build=$($os.BuildNumber) arch=$($os.OSArchitecture)"
+          if ($os.OSArchitecture -notmatch '64') { throw 'Requires x64 Windows' }
+          if (-not (Test-Path 'ci/publisher/pub032_probe.c')) { throw 'Probe source missing' }
+      - name: Compile and actually execute x64 Windows PE on hosted runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'VS discovery tool missing' }
+          $vs = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+          if (-not $vs) { throw 'VS C++ toolchain missing' }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          if (-not (Test-Path $vcvars)) { throw 'vcvars64 missing' }
+          $cmd = @"
+          @echo off
+          call "$vcvars" >nul
+          if errorlevel 1 exit /b 21
+          cl.exe /nologo /W4 /WX /O2 /Fe:out\pub032_probe.exe ci\publisher\pub032_probe.c
+          if errorlevel 1 exit /b 22
+          out\pub032_probe.exe out\native_proof.txt
+          if errorlevel 1 exit /b 23
+          "@
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'out\compile_native.cmd'), $cmd, [Text.Encoding]::ASCII)
+          & cmd.exe /c 'out\compile_native.cmd'
+          if ($LASTEXITCODE -ne 0) { throw "Native compilation/execution exit=$LASTEXITCODE" }
+      - name: Verify PE machine type, real file IO, install and rollback invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'out/pub032_probe.exe').Path
+          $raw = [IO.File]::ReadAllBytes($exe)
+          if ($raw.Length -lt 256) { throw 'Not a PE binary' }
+          if ([Text.Encoding]::ASCII.GetString($raw,0,2) -ne 'MZ') { throw 'Missing MZ header' }
+          $peOffset = [BitConverter]::ToInt32($raw, 0x3c)
+          if ($peOffset -lt 64 -or $peOffset -gt ($raw.Length-6)) { throw 'Invalid PE offset' }
+          if ([Text.Encoding]::ASCII.GetString($raw,$peOffset,4) -ne ("PE" + [char]0 + [char]0)) { throw 'Missing PE signature' }
+          $machine = [BitConverter]::ToUInt16($raw,$peOffset+4)
+          if ($machine -ne 0x8664) { throw "Not AMD64 PE: $machine" }
+          $text = [IO.File]::ReadAllText((Resolve-Path 'out/native_proof.txt').Path)
+          if ($text -ne "PUB032_WINDOWS_NATIVE_PE_EXECUTED`n") { throw "Native PE did not write expected bytes" }
+          $dir = Join-Path $env:RUNNER_TEMP 'pub032_synthetic_install'
+          if (Test-Path $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+          $program = Join-Path $dir 'Program'
+          $data = Join-Path $dir 'Data'
+          $backup = Join-Path $dir 'Backup'
+          New-Item -ItemType Directory -Force $program,$data,$backup | Out-Null
+          Copy-Item 'out/native_proof.txt' (Join-Path $program 'app.txt')
+          $firstHash = (Get-FileHash (Join-Path $program 'app.txt') -Algorithm SHA256).Hash
+          $srcHash = (Get-FileHash 'out/native_proof.txt' -Algorithm SHA256).Hash
+          if ($firstHash -ne $srcHash) { throw 'Install file hash mismatch' }
+          [IO.File]::WriteAllText((Join-Path $data 'business.txt'), 'BUSINESS_DATA_MUST_BE_PRESERVED', [Text.Encoding]::UTF8)
+          $dataHash = (Get-FileHash (Join-Path $data 'business.txt') -Algorithm SHA256).Hash
+          Copy-Item (Join-Path $program 'app.txt') (Join-Path $backup 'app.txt')
+          [IO.File]::WriteAllText((Join-Path $program 'app.txt'), 'SYNTHETIC_UPGRADE_V2', [Text.Encoding]::UTF8)
+          if ((Get-FileHash (Join-Path $data 'business.txt') -Algorithm SHA256).Hash -ne $dataHash) { throw 'Upgrade modified business data' }
+          Copy-Item (Join-Path $backup 'app.txt') (Join-Path $program 'app.txt') -Force
+          if ((Get-FileHash (Join-Path $program 'app.txt') -Algorithm SHA256).Hash -ne $firstHash) { throw 'Synthetic rollback failed' }
+          $os = Get-CimInstance Win32_OperatingSystem
+          $report = [ordered]@{
+            scope = 'PUB-032 host capability ONLY - NOT proprietary installer execution'
+            Windows = $os.Caption
+            build = $os.BuildNumber
+            machine = 'AMD64 0x8664'
+            native_pe_started = $true
+            native_pe_wrote_file = $true
+            synthetic_fresh_install_sha256_match = $true
+            synthetic_upgrade_preserves_data = $true
+            synthetic_rollback_restores_file = $true
+            publisher_v21128_tested = $false
+            actual_product_installer_tested = $false
+            actual_product_gui_tested = $false
+            actual_product_rollback_tested = $false
+            executable_sha256 = (Get-FileHash $exe -Algorithm SHA256).Hash
+            first_install_file_sha256 = $firstHash
+          }
+          $report | ConvertTo-Json -Depth 5 | Set-Content -Path 'out/pub032_windows_native_report.json' -Encoding utf8
+          Get-Content 'out/pub032_windows_native_report.json'
+      - name: Probe hosted runner native Win32 desktop availability (diagnostic)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          if (!$vs) { throw 'Missing Visual C++ compiler' }
+          $vcvars=Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          $cmd=@"
+          @echo off
+          call "$vcvars" >nul
+          cl.exe /nologo /W4 /WX /O2 /Fe:out\pub032_gui_probe.exe ci\publisher\pub032_gui_probe.c /link /SUBSYSTEM:WINDOWS user32.lib
+          "@
+          [IO.File]::WriteAllText((Join-Path (Get-Location) 'out\compile_gui.cmd'),$cmd,[Text.Encoding]::ASCII)
+          & cmd.exe /c 'out\compile_gui.cmd'
+          if ($LASTEXITCODE -ne 0) { throw 'GUI probe compile failed' }
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class P32Probe {
+            [DllImport("user32.dll",CharSet=CharSet.Unicode)]
+            public static extern IntPtr FindWindow(string cls,string name);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr SendMessage(IntPtr h,uint msg,IntPtr w,IntPtr l);
+            public delegate bool EnumCallback(IntPtr hwnd,IntPtr extra);
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern bool EnumThreadWindows(uint thread, EnumCallback callback, IntPtr extra);
+            [DllImport("user32.dll", EntryPoint="GetClassNameW", CharSet=CharSet.Unicode)]
+            public static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder dst, int cap);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern IntPtr GetDlgItem(IntPtr hwnd,int id);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern bool EnumChildWindows(IntPtr parent,EnumCallback callback,IntPtr extra);
+            [DllImport("user32.dll",SetLastError=true)]
+            public static extern int GetDlgCtrlID(IntPtr child);
+          }
+          '@
+          $p=Start-Process -FilePath (Resolve-Path 'out/pub032_gui_probe.exe').Path -PassThru
+          $found=$false
+          for($i=0;$i -lt 15;$i++){
+            if([P32Probe]::FindWindow('PUB032GUIProbe',$null) -ne [IntPtr]::Zero){$found=$true;break}
+            if($p.HasExited){break}
+            Start-Sleep -Seconds 1
+          }
+          $r=[ordered]@{
+            diagnostic='PUB032 Win32 hosted desktop visibility only'
+            host_session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+            user_interactive=[Environment]::UserInteractive
+            probe_session=$p.SessionId
+            probe_exited=$p.HasExited
+            probe_exit_code=$(if($p.HasExited){$p.ExitCode}else{$null})
+            window_found=$found
+            result=$(if($found){'GUI window accessible'}else{'GUI unavailable, wrong desktop, or probe startup failure'})
+          }
+          $child='out/pub032_gui_child.txt'
+          if(Test-Path $child){
+            $raw=Get-Content $child -Raw
+            $r.child_hwnd_written=$true
+            $r.child_window_station=([regex]::Match($raw,'WINSTA=([^\\r\\n]+)')).Groups[1].Value
+            $r.child_desktop=([regex]::Match($raw,'DESKTOP=([^\\r\\n]+)')).Groups[1].Value
+            $r.main_window_handle=$p.MainWindowHandle.ToInt64()
+            $handles=New-Object 'System.Collections.Generic.List[System.IntPtr]'
+            $callback=[P32Probe+EnumCallback]{
+              param([IntPtr]$hwnd,[IntPtr]$ignored)
+              $handles.Add($hwnd)
+              return $true
+            }
+            foreach($thread in $p.Threads){
+              [void][P32Probe]::EnumThreadWindows([uint32]$thread.Id,$callback,[IntPtr]::Zero)
+            }
+            $classes=@()
+            foreach($hwnd in $handles){
+              $sb=New-Object System.Text.StringBuilder 256
+              [void][P32Probe]::GetClassName($hwnd,$sb,$sb.Capacity)
+              $classes+= $sb.ToString()
+            }
+            $r.enum_thread_window_count=$handles.Count
+            $r.enum_thread_classes=$classes
+            $r.enum_thread_found_probe=($classes -contains 'PUB032GUIProbe')
+            $hex=([regex]::Match($raw,'HWND=([0-9A-Fa-f]+)')).Groups[1].Value
+            if($hex){
+              $probeHwnd=[IntPtr]([Convert]::ToInt64($hex,16))
+              $direct=[P32Probe]::GetDlgItem($probeHwnd,105)
+              $r.synthetic_GetDlgItem_105_found=($direct -ne [IntPtr]::Zero)
+              $r.synthetic_GetDlgItem_105_hwnd=$direct.ToInt64()
+              $childHandles=New-Object 'System.Collections.Generic.List[System.IntPtr]'
+              $cb=[P32Probe+EnumCallback]{
+                param([IntPtr]$hh,[IntPtr]$ignored)
+                $childHandles.Add($hh)
+                return $true
+              }
+              [void][P32Probe]::EnumChildWindows($probeHwnd,$cb,[IntPtr]::Zero)
+              $r.synthetic_child_control_ids=@($childHandles | ForEach-Object {[P32Probe]::GetDlgCtrlID($_)})
+              $r.synthetic_child_enum_count=$childHandles.Count
+            }
+            if($hex){
+              $ptr=[IntPtr]([Convert]::ToInt64($hex,16))
+              [void][P32Probe]::SendMessage($ptr,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)
+              $p.WaitForExit(3000) | Out-Null
+              $r.direct_hwnd_WM_CLOSE_exited=$p.HasExited
+            }
+          }else{$r.child_hwnd_written=$false}
+          $r | ConvertTo-Json | Set-Content 'out/pub032_gui_probe_report.json'
+          $r | ConvertTo-Json | Write-Host
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+      - name: Save evidence only (no source or private package)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pub032-windows-native-evidence
+          path: |
+            out/pub032_windows_native_report.json
+            out/native_proof.txt
+            out/pub032_gui_probe_report.json
+            out/pub032_gui_child.txt
+          if-no-files-found: warn
