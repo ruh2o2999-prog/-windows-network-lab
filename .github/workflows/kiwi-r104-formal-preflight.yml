@@ -1,0 +1,28 @@
+name: R104 formal network audit independent code and negative-case validation
+on:
+  push:
+    branches: [kiwi-r104-formal-network-audit]
+    paths:
+      - 'kiwi-r104-lab/**'
+      - '.github/workflows/kiwi-r104-formal-preflight.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'kiwi-r104-lab/**'
+      - '.github/workflows/kiwi-r104-formal-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-source-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate R104 formal Android automation syntax and reconciler
+        run: |
+          python3 -m py_compile kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/r104-production-network-test.py kiwi-r104-lab/test_r104_capture_reconcile.py
+          python3 kiwi-r104-lab/test_r104_capture_reconcile.py
+      - name: Preserve source checksums only (no private MV2)
+        run: |
+          sha256sum kiwi-r104-lab/*.py
