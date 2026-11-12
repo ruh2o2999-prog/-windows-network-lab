@@ -42,6 +42,16 @@ def run_case(root,name,mutator,expected):
     passed=report['summary']['failed']==0
     assert passed==expected,(name,report['gates'])
     assert (folder/'controlled.zip').exists()==expected,name
+    if expected:
+        with zipfile.ZipFile(folder/'controlled.zip') as proof:
+            assert proof.testzip() is None
+            window=json.loads(proof.read('R107/replay_parameters.json'))
+            proof_path=folder/'round_trip_truth.jsonl'
+            proof_path.write_bytes(proof.read('R107/independent_server_truth.jsonl'))
+            replay=verify(folder/'controlled.zip',proof_path,
+                          window['start_ns'],window['end_ns'],folder/'replay_report.json',
+                          min_events=window['min_events'])
+            assert replay['summary']['failed']==0,('replay_mismatch',replay['gates'])
     return {'actual':'PASS' if passed else 'FAIL_AS_EXPECTED',
             'failed_gates':[k for k,v in report['gates'].items() if v['status']=='FAIL']}
 def nothing(i,e,t):pass
