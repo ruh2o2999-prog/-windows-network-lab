@@ -93,23 +93,51 @@ jobs:
           Add-Type -TypeDefinition @'
           using System;
           using System.Runtime.InteropServices;
+          using System.Text;
           public static class PUB032Win {
             [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
             public static extern IntPtr FindWindow(string className,string windowTitle);
             [DllImport("user32.dll", SetLastError=true)]
             public static extern IntPtr SendMessage(IntPtr hWnd,uint msg,IntPtr wParam,IntPtr lParam);
+            public delegate bool Callback(IntPtr h, IntPtr extra);
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern bool EnumThreadWindows(uint thread,Callback cb,IntPtr extra);
+            [DllImport("user32.dll", EntryPoint="GetClassNameW",CharSet=CharSet.Unicode)]
+            public static extern int GetClassName(IntPtr h,StringBuilder text,int cap);
+            [DllImport("user32.dll", EntryPoint="GetWindowTextW",CharSet=CharSet.Unicode)]
+            public static extern int GetWindowText(IntPtr h,StringBuilder text,int cap);
           }
           '@
           $p = Start-Process -FilePath $exe -PassThru
           $h = [IntPtr]::Zero
-          for ($i=0; $i -lt 45; $i++) {
-            $h = [PUB032Win]::FindWindow('WorkPlatformInstaller',$null)
-            if ($h -ne [IntPtr]::Zero) { break }
+          $windows=@()
+          for ($i=0; $i -lt 35; $i++) {
+            $p.Refresh()
             if ($p.HasExited) { throw "Installer exited before GUI, code=$($p.ExitCode)" }
+            $handles=New-Object 'System.Collections.Generic.List[System.IntPtr]'
+            $callback=[PUB032Win+Callback]{
+              param([IntPtr]$win,[IntPtr]$ignored)
+              $handles.Add($win)
+              return $true
+            }
+            foreach($thread in $p.Threads){
+              [void][PUB032Win]::EnumThreadWindows([uint32]$thread.Id,$callback,[IntPtr]::Zero)
+            }
+            $windows=@()
+            foreach($win in $handles){
+              $cls=New-Object System.Text.StringBuilder 256
+              $ttl=New-Object System.Text.StringBuilder 256
+              [void][PUB032Win]::GetClassName($win,$cls,$cls.Capacity)
+              [void][PUB032Win]::GetWindowText($win,$ttl,$ttl.Capacity)
+              $windows+=@{class=$cls.ToString();title=$ttl.ToString();hwnd=$win.ToInt64()}
+              if($cls.ToString() -eq 'WorkPlatformInstaller'){$h=$win}
+            }
+            if ($h -ne [IntPtr]::Zero) { break }
             Start-Sleep -Seconds 1
           }
-          if ($h -eq [IntPtr]::Zero) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Installer GUI absent on hosted runner' }
-          Write-Host 'PUB032_PRODUCT_INSTALLER_WINDOW_FOUND'
+          $windows | ConvertTo-Json -Depth 4 | Set-Content 'out/pub032_installer_window_diagnostics.json'
+          if ($h -eq [IntPtr]::Zero) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw "Installer main window not found by EnumThreadWindows: $($windows | ConvertTo-Json -Compress)" }
+          Write-Host 'PUB032_PRODUCT_INSTALLER_WINDOW_FOUND_BY_THREAD_ENUM'
           [void][PUB032Win]::SendMessage($h,0x0111,[IntPtr]203,[IntPtr]::Zero)
           $p.WaitForExit(90000) | Out-Null
           if (!$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'Installer timed out' }
@@ -149,4 +177,5 @@ jobs:
             out/pub032_handoff.json
             out/pub032_actual_installer_report.json
             out/host_environment.txt
+            out/pub032_installer_window_diagnostics.json
           if-no-files-found: warn
