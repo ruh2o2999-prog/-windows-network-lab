@@ -1,0 +1,5 @@
+{
+  "status": "RETIRED_AFTER_VERIFIED_CI_RUN",
+  "run_id": "43158599253",
+  "note": "Original encrypted blobs remain retrievable from Git history; this placeholder is not secure deletion."
+}

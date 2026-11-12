@@ -1,0 +1,111 @@
+name: Kiwi R104 segmented per-key encrypted formal MV2 handoff (test only)
+on:
+  push:
+    branches: [kiwi-r104-segmented-test]
+    paths:
+      - '.github/workflows/kiwi-r104-segmented-transfer.yml'
+      - 'kiwi-r104-lab/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kiwi-r104-segmented-transfer.yml'
+      - 'kiwi-r104-lab/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  verify-segmented-transfer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up real crypto and validate public-only synthetic package
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet 'cryptography==46.0.4'
+          python -m py_compile kiwi-r104-lab/segmented_private_transfer.py kiwi-r104-lab/verify_segmented_transfer.py kiwi-r104-lab/make_synthetic_fixture.py
+          python kiwi-r104-lab/make_synthetic_fixture.py --out /tmp/r104-synthetic.zip
+          mkdir -p out
+          PYTHONPATH=kiwi-r104-lab python kiwi-r104-lab/verify_segmented_transfer.py --source /tmp/r104-synthetic.zip --report out/r104_synthetic_19_cases.json
+      - name: Publish ephemeral receiver public key ONLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          python kiwi-r104-lab/segmented_private_transfer.py keygen --out /tmp/r104-keys > /tmp/r104-keygen-output.json
+          mkdir -p exchange/r104-run-${GITHUB_RUN_ID}
+          cp /tmp/r104-keys/receiver-public.pem exchange/r104-run-${GITHUB_RUN_ID}/receiver-public.pem
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add exchange/r104-run-${GITHUB_RUN_ID}/receiver-public.pem
+          git commit -m "ci(r104): publish one-time PUBLIC key for run ${GITHUB_RUN_ID}"
+          git push origin HEAD:kiwi-r104-segmented-test
+          echo "R104_PUBLIC_RECEIVER_KEY_READY=exchange/r104-run-${GITHUB_RUN_ID}/receiver-public.pem"
+      - name: Receive individually encrypted chunks; restore exact formal MV2
+        shell: bash
+        run: |
+          set -euo pipefail
+          RDIR="exchange/r104-run-${GITHUB_RUN_ID}"
+          export RDIR GITHUB_RUN_ID
+          for attempt in $(seq 1 150); do
+            git fetch -q origin '+refs/heads/kiwi-r104-segmented-test:refs/remotes/origin/kiwi-r104-segmented-test'
+            if git show "origin/kiwi-r104-segmented-test:${RDIR}/manifest.json" > /tmp/r104_manifest_arrived.json 2>/dev/null; then
+              break
+            fi
+            sleep 4
+          done
+          test -s /tmp/r104_manifest_arrived.json || { echo 'R104_SEGMENTED_TRANSPORT_TIMEOUT'; exit 23; }
+          mkdir -p /tmp/r104-assembled-cipher
+          python - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          m=json.loads(pathlib.Path('/tmp/r104_manifest_arrived.json').read_text())
+          root='origin/kiwi-r104-segmented-test:'+os.environ['RDIR']+'/'
+          out=pathlib.Path('/tmp/r104-assembled-cipher')
+          (out/'manifest.json').write_text(json.dumps(m))
+          for p in m['parts']:
+              for name in (p['filename'],p['key_filename']):
+                  blob=subprocess.check_output(['git','show',root+name+'.b64'],timeout=15)
+                  (out/name).write_bytes(base64.b64decode(blob.strip(),validate=True))
+          print('R104_CIPHER_SEGMENTS_RECEIVED',len(m['parts']))
+          PY
+          # The expected digest is independently pinned, NOT trusted from the public manifest.
+          python kiwi-r104-lab/segmented_private_transfer.py restore \
+            --bundle /tmp/r104-assembled-cipher \
+            --private-key /tmp/r104-keys/receiver-private.pem \
+            --output /tmp/r104-formal-mv2.zip \
+            --expected-sha256 32219f852321aea68843acfac91a33c86be2563c4f4a609988fed109d7edc479 \
+            --expected-session "r104_run_${GITHUB_RUN_ID}" > /tmp/r104_restore_result.json
+          python - <<'PY'
+          import json, pathlib, zipfile, hashlib, os
+          p=pathlib.Path('/tmp/r104-formal-mv2.zip')
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              meta=json.loads(z.read('manifest.json'))
+              assert meta['manifest_version']==2 and meta['version']=='0.4.58'
+              n=len(z.namelist())
+              assert n==93,(n,'members not the exact tested version')
+          r={'result':'PASS','target':'actual private formal Kiwi MV2 V0.4.58','workflow_run':os.environ['GITHUB_RUN_ID'],
+             'source_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'source_bytes':p.stat().st_size,
+             'zip_members':n,'zip_crc':'PASS','segmented_transfer':'PASS',
+             'sender_encryption':'independent random AES256-GCM per chunk, RSA3072 OAEP-SHA256 wrapped per-key',
+             'private_key_in_artifact':False,'plaintext_zip_in_artifact':False}
+          pathlib.Path('out/r104_formal_cross_environment_result.json').write_text(json.dumps(r,indent=2))
+          print('R104_REAL_FORMAL_PACKAGE_REASSEMBLY_SUCCESS',json.dumps(r))
+          PY
+      - name: Purge ephemeral local private key and plaintext
+        if: always()
+        shell: bash
+        run: |
+          rm -f /tmp/r104-formal-mv2.zip /tmp/r104-keys/receiver-private.pem /tmp/r104_restore_result.json /tmp/r104-keygen-output.json
+          rm -rf /tmp/r104-assembled-cipher /tmp/r104-synthetic.zip /tmp/r104_manifest_arrived.json
+      - name: Upload only public validation evidence, never plain source or keys
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r104-segmented-cross-env-evidence
+          path: out/
+          if-no-files-found: warn
