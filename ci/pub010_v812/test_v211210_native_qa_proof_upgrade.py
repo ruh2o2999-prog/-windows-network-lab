@@ -77,7 +77,7 @@ try:
     datafile=ROOT/"Data"/"keep_user.dat"
     data_sha=sha_file(datafile)
     gui(NEW,"upgrade_new_3_files_with_exclusion_proof")
-    require_files({n:{"sha256":v} for n,v in m["new_file_expected_sha256"].items() if not n.startswith("Data/")})
+    require_files({n:{"sha256":v} for n,v in m["new_file_expected_sha256"].items() if not n.startswith(("Data/","Data\\"))})
     if sha_file(datafile)!=data_sha or sha_file(userfile)!=note_sha:
         raise AssertionError("Old Data or user note changed during upgrade")
     missing=[n for n in qa if (ROOT/n).exists()]
