@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 0
       - name: Preflight scripts and release
         run: |
-          python3 -m py_compile kiwi-android-lab/download_kiwi.py kiwi-r104-lab/r104-production-network-test.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/controlled_fixture_server.py
+          python3 -m py_compile kiwi-android-lab/download_kiwi.py kiwi-r104-lab/r104-production-network-test.py kiwi-r104-lab/r104_capture_reconcile.py kiwi-r104-lab/controlled_fixture_server.py kiwi-r104-lab/r104_network_strict_parity.py kiwi-r104-lab/test_r104_network_strict_parity.py
           mkdir -p out
           python3 kiwi-android-lab/download_kiwi.py
       - name: Publish one-time certificate (NOT private key) into isolated branch
