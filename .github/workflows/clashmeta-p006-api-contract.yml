@@ -43,7 +43,7 @@ jobs:
           export CC="$ANDROID_HOME/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang"
           test -x "$CC"
           printf 'GOOS=%s GOARCH=%s CGO_ENABLED=%s CC=%s\n' "$GOOS" "$GOARCH" "$CGO_ENABLED" "$CC" > evidence/target-env.txt
-          (cd upstream/core/src/main/golang && go test -c -vet=off -o "$GITHUB_WORKSPACE/p006-android-arm64.test" ./native/tun) 2>&1 | tee evidence/go-api-compile.txt
+          (cd upstream/core/src/main/golang && go test -c -tags "foss,with_gvisor,cmfa" -vet=off -o "$GITHUB_WORKSPACE/p006-android-arm64.test" ./native/tun) 2>&1 | tee evidence/go-api-compile.txt
           file p006-android-arm64.test > evidence/compiled-binary-type.txt
           sha256sum p006-android-arm64.test > evidence/compiled-binary-sha256.txt
           grep -q 'ELF 64-bit' evidence/compiled-binary-type.txt
