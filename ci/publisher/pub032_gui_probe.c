@@ -16,6 +16,20 @@ int WINAPI WinMain(HINSTANCE inst,HINSTANCE prev,LPSTR cmd,int show){
  WS_OVERLAPPEDWINDOW,25,25,350,120,NULL,NULL,inst,NULL);
  if(!h){return 101;}
  ShowWindow(h,SW_SHOW);UpdateWindow(h);
+ {
+   HANDLE out=CreateFileW(L"out\\pub032_gui_child.txt",GENERIC_WRITE,FILE_SHARE_READ,
+       NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+   if(out!=INVALID_HANDLE_VALUE){
+     char station[128]={0},desktop[128]={0},text[512];
+     DWORD needed=0,written=0;
+     GetUserObjectInformationA(GetProcessWindowStation(),UOI_NAME,station,sizeof station,&needed);
+     GetUserObjectInformationA(GetThreadDesktop(GetCurrentThreadId()),UOI_NAME,desktop,sizeof desktop,&needed);
+     wsprintfA(text,"HWND=%p\nPID=%lu\nWINSTA=%s\nDESKTOP=%s\n",
+                (void*)h,GetCurrentProcessId(),station,desktop);
+     WriteFile(out,text,(DWORD)lstrlenA(text),&written,NULL);
+     CloseHandle(out);
+   }
+ }
  while(GetMessageW(&msg,0,0,0)>0){TranslateMessage(&msg);DispatchMessageW(&msg);}
  return 0;
 }
