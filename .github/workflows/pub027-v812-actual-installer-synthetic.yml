@@ -1,4 +1,5 @@
 name: PUB-027 V8.12 Real Installer Tiny Synthetic Lock Recovery
+# Targeted rerun after HWND-to-UIA invocation succeeded on native Windows (43276417990).
 on:
   push:
     branches: [publisher-v21129-v812-lock-probe-20261113]
