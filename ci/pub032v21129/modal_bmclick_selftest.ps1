@@ -27,7 +27,7 @@ try{
     $p.Refresh()
     if($p.HasExited){throw 'Child exited without modal'}
     $windows=[System.Collections.Generic.List[IntPtr]]::new()
-    $cb=[ModalSmoke+EnumCb]{param([IntPtr]$h,[IntPtr]$ex) [uint32]$pid=0;[void][ModalSmoke]::GetWindowThreadProcessId($h,[ref]$pid);if($pid -eq [uint32]$p.Id){$windows.Add($h)};return $true}
+    $cb=[ModalSmoke+EnumCb]{param([IntPtr]$h,[IntPtr]$ex) [uint32]$windowPid=0;[void][ModalSmoke]::GetWindowThreadProcessId($h,[ref]$windowPid);if($windowPid -eq [uint32]$p.Id){$windows.Add($h)};return $true}
     [void][ModalSmoke]::EnumWindows($cb,[IntPtr]::Zero)
     foreach($w in $windows){
       $b=[System.Text.StringBuilder]::new(256)
