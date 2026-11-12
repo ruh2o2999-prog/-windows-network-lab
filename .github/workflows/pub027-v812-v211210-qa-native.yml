@@ -74,7 +74,7 @@ jobs:
           $dest=Join-Path $env:RUNNER_TEMP 'pub027_v812_qa_proof'
           $env:QA_PROOF_TEST_ZIP=$plain
           $env:QA_PROOF_TEST_DEST=$dest
-          @'
+          $py=@'
           from pathlib import Path
           from zipfile import ZipFile
           import os
@@ -86,7 +86,8 @@ jobs:
               assert z.testzip() is None
               z.extractall(dest)
           print("PUB027_V812_ENCRYPTED_FIXTURE_DECRYPTED_AND_SHA256_VERIFIED")
-          '@ | python -
+          '@
+          $py | python -
           if($LASTEXITCODE){throw 'Decrypted manifest validation failed'}
           Remove-Item $plain,$cipher,(Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_key.pem') -Force -ErrorAction SilentlyContinue
       - name: Native V2.11.2.9 to V2.11.2.10 installer QA exclusion upgrade and modified-file protection
