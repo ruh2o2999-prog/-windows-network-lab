@@ -70,7 +70,7 @@ jobs:
           & $openssl cms -decrypt -binary -inform DER -in $cipher -recip (Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_cert.crt') -inkey (Join-Path $env:RUNNER_TEMP 'pub027_qa_211210_key.pem') -out $plain
           if($LASTEXITCODE){throw 'Decryption failed'}
           $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($digest -ne '6faeb8824d01b071ae6e9576b941fef90ee967f792a7c24f81ba7800b4b695d8'){throw "Wrong encrypted fixture SHA: $digest"}
+          if($digest -ne '86b0d74e80914057511c73c4561e5b9c792206c4405019498356e925b9d7d021'){throw "Wrong encrypted fixture SHA: $digest"}
           $dest=Join-Path $env:RUNNER_TEMP 'pub027_v812_qa_proof'
           $env:QA_PROOF_TEST_ZIP=$plain
           $env:QA_PROOF_TEST_DEST=$dest
