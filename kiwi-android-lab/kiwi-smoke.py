@@ -212,6 +212,10 @@ def main():
                     if not dl:
                         dl=tap_text_any(xml,['Downloads','下载'],'file_picker_downloads_row')
                     if dl:xml=dl
+                # Switch to accessible list rows rather than tapping MaterialCard
+                # preview overlays or a passive grid title in DocumentsUI.
+                list_view=tap_target(xml,['List view'],'file_picker_list_view')
+                if list_view:xml=list_view
                 # Grid view exposes a clickable 'Preview the file ...' overlay;
                 # that click previews rather than selecting. Choose the exact
                 # non-clickable label bounds: parent grid card handles the tap.
