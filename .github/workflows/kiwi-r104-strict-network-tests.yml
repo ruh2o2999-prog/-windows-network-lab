@@ -7,6 +7,7 @@ on:
       - 'kiwi-r104-lab/r104_network_strict_parity.py'
       - 'kiwi-r104-lab/test_r104_network_strict_parity.py'
       - 'kiwi-r104-lab/r104-production-network-test.py'
+      - 'kiwi-r104-lab/R104_STRICT_PHASE_REPORT.md'
   pull_request:
     branches: [main]
     paths:
@@ -30,3 +31,41 @@ jobs:
       - name: State the verification boundary
         run: |
           echo 'R104: synthetic strict-reconciler tests only. Formal Kiwi V0.4.58 export is NOT validated by this workflow.'
+      - name: Package R104 validation source and evidence (no private plugin)
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          names=[
+            'kiwi-r104-lab/r104-production-network-test.py',
+            'kiwi-r104-lab/r104_network_strict_parity.py',
+            'kiwi-r104-lab/test_r104_network_strict_parity.py',
+            'kiwi-r104-lab/r104_capture_reconcile.py',
+            'kiwi-r104-lab/test_r104_capture_reconcile.py',
+            'kiwi-r104-lab/controlled_fixture_server.py',
+            'kiwi-r104-lab/R104_PHASE_REPORT.md',
+            'kiwi-r104-lab/R104_STRICT_PHASE_REPORT.md',
+            'kiwi-r104-lab/R104_原编号销项增量.csv'
+          ]
+          record={n:{"bytes":pathlib.Path(n).stat().st_size,
+                     "sha256":hashlib.sha256(pathlib.Path(n).read_bytes()).hexdigest()} for n in names}
+          pathlib.Path('out/source_checksums.json').write_text(json.dumps(record,ensure_ascii=False,indent=2))
+          PY
+      - name: Archive single R104 incremental validation deliverable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kiwi_R104_Strict_Validation_Source_Evidence
+          path: |
+            kiwi-r104-lab/r104-production-network-test.py
+            kiwi-r104-lab/r104_network_strict_parity.py
+            kiwi-r104-lab/test_r104_network_strict_parity.py
+            kiwi-r104-lab/r104_capture_reconcile.py
+            kiwi-r104-lab/test_r104_capture_reconcile.py
+            kiwi-r104-lab/controlled_fixture_server.py
+            kiwi-r104-lab/R104_PHASE_REPORT.md
+            kiwi-r104-lab/R104_STRICT_PHASE_REPORT.md
+            kiwi-r104-lab/R104_原编号销项增量.csv
+            out/*.json
+          if-no-files-found: error
