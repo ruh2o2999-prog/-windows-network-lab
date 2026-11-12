@@ -1,0 +1,58 @@
+name: Douyin C4C3 Android11 First-Party SSR and Response-Shape Diagnostics
+on:
+  push:
+    branches: [douyin-c4c3-data-trace-20261112]
+    paths:
+      - '.github/workflows/douyin-c4c3-data-trace.yml'
+      - 'c4c3_public_probe/C4C3_public_probe.zip.b64'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  c4c3-android11-data-trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify standalone public read-only probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4c3_exp
+          base64 -d c4c3_public_probe/C4C3_public_probe.zip.b64 > c4c3_exp/payload.zip
+          echo '1c14582ed391a56690a7430e830e6dc6587e515d8d2d07b810e3d0ab575454b1  c4c3_exp/payload.zip' | sha256sum -c -
+          unzip -q c4c3_exp/payload.zip -d c4c3_exp
+          test -s c4c3_exp/C4C3_Android11_Research.apk
+          test -s c4c3_exp/cdp_structural_observer.mjs
+          bash -n c4c3_exp/run_c4c3_android11.sh
+          node --check c4c3_exp/cdp_structural_observer.mjs
+          node --version
+      - name: Enable hardware virtualization
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: Android 11 read-only native page and network observation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash c4c3_exp/run_c4c3_android11.sh
+      - name: Upload real evidence including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4c3-android11-ssr-and-response-shape
+          path: c4c3_results/
+          retention-days: 14
+          if-no-files-found: warn
