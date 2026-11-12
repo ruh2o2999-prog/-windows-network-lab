@@ -39,7 +39,7 @@ jobs:
             'Never observed real published-success dialog'
           )
           foreach($r in $requirements){if(!$source.Contains($r)){throw "Missing diagnostic contract: $r"}}
-          if($source.Contains("if(\$w.title -match '失败|错误|不足|不支持|取消|异常')")){throw 'Legacy blind-spot modal filter remains'}
+          if($source.Contains('if($w.title -match ''失败|错误|不足|不支持|取消|异常'')')){throw 'Legacy blind-spot modal filter remains'}
           Write-Host 'PUB032_V6_WINDOWS_POWERSHELL_PARSE_PASS'
           Write-Host 'PUB032_V6_ALL_MODAL_OBSERVATION_CONTRACT_PASS'
           Write-Host 'WINDOWS_NATIVE_PUBLISHER_AND_BUSINESS_INSTALL_NOT_EXECUTED'
