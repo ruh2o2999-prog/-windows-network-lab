@@ -59,48 +59,81 @@ def execute(run,snapshot,state,out,fixture_url,type_internal_url,native_extensio
    except Exception:pass
    time.sleep(1)
   gate('R115_06_real_page_Main_world_MSE_and_sourcebuffer',page and page.get('info',{}).get('status')=='READY' and page.get('pageHook') and page.get('diagHook') and str(page['info'].get('blobUrl','')).startswith('blob:http://127.0.0.1:18765/'),page)
-  # Initialize original panel's data source; do not invent mediaReport or tamper with page identities.
-  ui=cdp_eval(ws,'''(async()=>{
-    const t=await new Promise((ok,no)=>chrome.tabs.get('''+str(tab_id)+''',x=>chrome.runtime.lastError?no(Error(chrome.runtime.lastError.message)):ok(x)));
-    target=t;
-    await mediaSecurityRead();mseR94UpdatePlayers();
-    const p=(mediaReport?.mseR93?.players||[]).filter(x=>x.status==='mse-player-linked');
+  # Original panel JavaScript is closure-scoped. CDP MUST use exposed native DOM
+  # controls, not inject calls to private functions (R115 first-run test error).
+  navigation=cdp_eval(ws,'''(async()=>{
+    const tabs=await new Promise((ok,no)=>chrome.tabs.query({},x=>chrome.runtime.lastError?no(Error(chrome.runtime.lastError.message)):ok(x)));
+    const mine=tabs.filter(t=>(t.url||'').startsWith(location.origin+'/panel.html'));
+    if(!mine.length)throw Error('No genuine extension panel tab');
+    const panel=mine.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0))[0];
+    const to=location.origin+'/panel.html?tabId='+'''+str(tab_id)+''';
+    setTimeout(()=>chrome.tabs.update(panel.id,{url:to,active:true}),400);
+    return {panelId:panel.id,target:to,tabId:'''+str(tab_id)+'''};
+  })()''',timeout=30)
+  record['panel_navigation']=navigation
+  time.sleep(5)
+  newpanel=probe_cdp(run,out);ws=newpanel.get('_websocket_url')
+  gate('R115_07_panel_original_tabId_route_reinitialized',bool(ws) and newpanel.get('found_target',{}).get('url','').endswith('tabId='+str(tab_id)),
+      {'tabId':tab_id,'route':newpanel.get('found_target'),'planned':navigation})
+  ui=None
+  for n in range(15):
+   ui=cdp_eval(ws,'''(()=>{
+    const d=document.getElementById('media-security-details');if(d&&!d.open)d.open=true;
+    const b=document.getElementById('media-security-refresh');if(b)b.click();
     const sel=document.getElementById('mse-r94-player');
-    return {players:p,available:[...sel.options].map(x=>({value:x.value,label:x.textContent})),diag:document.getElementById('mse-r95-diag').textContent};
-  })()''',timeout=60)
+    return {siteUrl:document.getElementById('site-url')?.textContent||'',
+      players:sel?[...sel.options].map(x=>({value:x.value,label:x.textContent})):[],
+      diag:document.getElementById('mse-r95-diag')?.textContent||'',pageReady:document.readyState};
+   })()''',timeout=25)
+   if any(x.get('value')==page['info']['blobUrl'] for x in ui.get('players',[])):break
+   time.sleep(2)
   record['panel_players']=ui
-  gate('R115_07_original_panel_detected_real_MSE_player',len(ui.get('players',[]))==1 and ui['players'][0].get('src')==page['info']['blobUrl'],ui)
-  # Click ORIGINAL button event handler; JS runtime evaluation does not bypass host authorization.
+  gate('R115_07b_original_UI_refresh_detected_MSE_player',ui and URL==ui.get('siteUrl') and
+      any(x.get('value')==page['info']['blobUrl'] for x in ui.get('players',[])),ui)
+  # Click ORIGINAL button event handler, scoped to actual selected playback tab.
   clicked=cdp_eval(ws,'''(()=>{const sel=document.getElementById('mse-r94-player');sel.value='''+json.dumps(page['info']['blobUrl'])+''';
    const b=document.getElementById('mse-r94-start');if(!b||b.disabled)throw Error('Original UI start button missing');
    window.confirm=()=>true;b.click();return {clicked:true,player:sel.value,label:b.textContent};})()''')
   active=None
+  def status_js():
+   return '''(async()=>await new Promise((ok,no)=>chrome.runtime.sendMessage({type:'MSE_R94_STATUS',tabId:'''+str(tab_id)+'''},r=>{
+    if(chrome.runtime.lastError)no(Error(chrome.runtime.lastError.message));else ok(r);
+   })))()'''
   for _ in range(25):
    time.sleep(1)
-   active=cdp_eval(ws,'''(async()=>await send('MSE_R94_STATUS'))()''')
+   active=cdp_eval(ws,status_js())
    if any(x.get('tabId')==tab_id and x.get('armed') for x in active.get('active',[])):break
-  gate('R115_08_original_ui_button_authorized_and_armed',active and any(x.get('tabId')==tab_id and x.get('armed') for x in active.get('active',[])),{'clicked':clicked,'active':active.get('active') if active else None})
+  gate('R115_08_original_ui_button_authorized_and_armed',active and any(x.get('tabId')==tab_id and x.get('armed') for x in active.get('active',[])),{'clicked':clicked,'active':active.get('active') if active else None,'statusUI':cdp_eval(ws,"document.getElementById('mse-r94-status').textContent")})
   task=next(x for x in active['active'] if x.get('tabId')==tab_id)
   push=evaluate_page('/r115/mse.html','''(async()=>await window.r115Push())()''',timeout=80)
   gate('R115_09_real_MSE_SourceBuffer_append_and_sourceended',push.get('ok') and push.get('bytes')==len(media) and push.get('appendCalls')==1,push)
   finalized=None
   for _ in range(30):
    time.sleep(1)
-   finalized=cdp_eval(ws,'''(async()=>await send('MSE_R94_STATUS'))()''')
+   finalized=cdp_eval(ws,status_js())
    if any(x.get('id')==task['id'] and x.get('state')=='staged-unverified' for x in finalized.get('tasks',[])):break
   match=next((x for x in (finalized or {}).get('tasks',[]) if x.get('id')==task['id']),None)
   gate('R115_10_real_page_bridge_background_flush_and_end',bool(match) and match.get('bytes')==len(media) and match.get('state')=='staged-unverified' and match.get('backend')=='R100-WAL-worker',{'matched':match,'jobId':task['id']})
-  check=cdp_eval(ws,'''(async()=>{const tasks=await mseR94Refresh(),id='''+json.dumps(task['id'])+''';const row=tasks.find(x=>x.id===id),resolved=mseR115Storage().resolve(row.taskKey);
-    const assembled=await resolved.store.assemble(id),verify=await KiwiMp4VerifyR94.verify(assembled.file,{requireAudio:true});
+  # Refresh actual panel saved-job selector to validate routing and old R94 retention.
+  jobs=None
+  for _ in range(12):
+   jobs=cdp_eval(ws,'''(()=>{document.getElementById('mse-r94-refresh').click();
+    return [...document.getElementById('mse-r94-jobs').options].map(x=>({value:x.value,label:x.textContent}));})()''')
+   if any(x.get('value','').endswith('|'+task['id']) for x in jobs):break
+   time.sleep(1)
+  record['panel_saved_task_options']=jobs
+  gate('R115_11_original_panel_displays_true_backend_and_task',any(x.get('value')=='R100-WAL-worker|'+task['id'] for x in jobs),jobs)
+  check=cdp_eval(ws,'''(async()=>{const id='''+json.dumps(task['id'])+''',store=KiwiMseWalAdapterR113.create({chromeApi:chrome});
+    const assembled=await store.assemble(id),verify=await KiwiMp4VerifyR94.verify(assembled.file,{requireAudio:true});
     const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await assembled.file.arrayBuffer()))].map(x=>x.toString(16).padStart(2,'0')).join('');
-    await assembled.remove();return {row,backend:resolved.row.backend,bytes:assembled.file.size,sha256:digest,verify};})()''',timeout=90)
+    await assembled.remove();return {backend:'R100-WAL-worker',bytes:assembled.file.size,sha256:digest,verify};})()''',timeout=90)
   record['panel_assembly']=check
-  gate('R115_11_original_panel_backend_routing_MP4_byte_identity',check.get('backend')=='R100-WAL-worker' and check.get('bytes')==len(media) and check.get('sha256')==EXPECTED and check.get('verify',{}).get('ok') is True,check)
-  # Exercise original export button separately; never delete without confirmed download.
-  button=cdp_eval(ws,'''(()=>{const id='''+json.dumps(task['id'])+''',rows=mseR94Tasks,row=rows.find(x=>x.id===id);
-   const sel=document.getElementById('mse-r94-jobs');sel.value=row.taskKey;
+  gate('R115_11b_original_MSE_MP4_byte_identity',check.get('backend')=='R100-WAL-worker' and check.get('bytes')==len(media) and check.get('sha256')==EXPECTED and check.get('verify',{}).get('ok') is True,check)
+  # Real export button click, then confirm browser receipt separately.
+  button=cdp_eval(ws,'''(()=>{const sel=document.getElementById('mse-r94-jobs');
+   sel.value='''+json.dumps('R100-WAL-worker|'+task['id'])+''';
    document.getElementById('mse-r94-export').click();
-   return {clicked:true,selectedBackend:row.backend,selectedKey:sel.value};})()''')
+   return {clicked:true,selectedKey:sel.value};})()''')
   receipt=None
   for _ in range(45):
    time.sleep(1)
