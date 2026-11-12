@@ -32,15 +32,21 @@ def snapshot(label):
     return xml
 
 def clickable(xml,keys):
+    """Locate only a genuinely clickable visible widget (not matching passive disclaimer text)."""
     try: root=ET.fromstring(xml[xml.find('<?xml'):] if '<?xml' in xml else xml)
     except Exception:return None
+    exact=[]; partial=[]
     for n in root.iter('node'):
-        val=(n.attrib.get('text','')+' '+n.attrib.get('content-desc','')).lower()
-        if any(k.lower() in val for k in keys):
-            m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',n.attrib.get('bounds',''))
-            if m:
-                a,b,c,d=map(int,m.groups());return ((a+c)//2,(b+d)//2,val.strip())
-    return None
+        attr=n.attrib
+        if attr.get('clickable')!='true' or attr.get('enabled')=='false': continue
+        val=(attr.get('text','')+' '+attr.get('content-desc','')).strip().lower()
+        if not val:continue
+        if not any(k.lower() in val for k in keys):continue
+        m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',attr.get('bounds',''))
+        if not m:continue
+        a,b,c,d=map(int,m.groups());hit=((a+c)//2,(b+d)//2,val)
+        (exact if any(val==k.lower() for k in keys) else partial).append(hit)
+    return (exact or partial or [None])[0]
 
 def tap_target(xml,keys,label):
     target=clickable(xml,keys)
@@ -50,14 +56,23 @@ def tap_target(xml,keys,label):
     return snapshot(label)
 
 def type_internal_url(url,label):
-    """Navigate browser internal URL via its own omnibox; Android VIEW cannot resolve chrome://."""
+    """Open internal pages inside Kiwi, never Android implicit VIEW for chrome://."""
     xml=snapshot('before_omni_'+label)
-    target=clickable(xml,['Search or type web address','Search or type URL','Search or type','Address bar','搜索或输入网址','地址栏'])
+    if PKG not in xml:
+        run(['adb','shell','monkey','-p',PKG,'-c','android.intent.category.LAUNCHER','1'])
+        time.sleep(3)
+        xml=snapshot('kiwi_refocused_'+label)
+    if PKG not in xml:
+        print('OMNIBOX_ABORT: Kiwi not foreground',flush=True)
+        return xml
+    target=clickable(xml,['Search or type web address','Search or type URL','Search or type',
+                           'Address bar','搜索或输入网址','地址栏'])
     if target:
         x,y,_=target
     else:
-        x,y=540,115  # 1080px Android AVD: fallback, with screenshot evidence
-    rc,msg=run(['adb','shell','input','tap',str(x),str(y)])
+        # Fallback Android x64 AVD screenshot evidence, no blind taps outside Kiwi.
+        x,y=540,115
+    run(['adb','shell','input','tap',str(x),str(y)])
     time.sleep(1)
     run(['adb','shell','input','text',url])
     run(['adb','shell','input','keyevent','66'])
@@ -103,11 +118,20 @@ def main():
     if blocker:
         state['errors'].append('Official Kiwi blocked by Google Play Services dialog; test must switch system-image target')
         return
-    # Dismiss optional first-run screens based on *actual* accessible node labels.
-    for i in range(3):
-        node=clickable(xml,['accept','agree','continue','get started','start browsing','同意','继续','开始使用'])
+    # Complete actual Kiwi onboarding, only clicking widgets marked clickable=true in UI XML.
+    for i in range(8):
+        node=clickable(xml,['skip','no thanks','not now','continue','next','get started',
+                            'start browsing','accept','agree','done','got it',
+                            '跳过','不用了','以后再说','继续','开始使用','接受','完成'])
         if not node:break
-        xml=tap_target(xml,[node[2]],'onboarding_'+str(i)) or xml
+        x,y,txt2=node
+        rc,detail=run(['adb','shell','input','tap',str(x),str(y)])
+        print('ONBOARDING_TAP',i,repr(txt2[:90]),'at',x,y,'rc',rc,flush=True)
+        time.sleep(3)
+        xml=snapshot('onboarding_'+str(i))
+    usable=PKG in xml and 'Welcome to Kiwi Browser' not in xml and            'won\'t run without Google Play services' not in xml
+    log_gate('A3b_onboarding_complete',usable,'Kiwi foreground and no onboarding blocker='+str(usable))
+    if not usable:return
     rc,txt=run(['adb','shell','am','start','-a','android.intent.action.VIEW',
                 '-d','kiwi://extensions/',PKG])
     time.sleep(8)
