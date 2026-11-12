@@ -90,6 +90,8 @@ def run_archive(before, after, out, cert, expected_cert_sha, status, before_mani
         raise ValueError('Authentic Android G4 gates not all PASS: ' + json.dumps(incomplete))
     before_meta = verify_zip(before, load_json(before_manifest))
     after_meta = verify_zip(after, load_json(after_manifest))
+    if before.resolve() == after.resolve() or before_meta['sha256'] == after_meta['sha256']:
+        raise ValueError('Before/after are not two distinct authentic Android export ZIP byte streams')
     sys.path.insert(0, str(Path(verifier_module).resolve().parent))
     from r108_offline_recovery_parity import verify
     out.mkdir(parents=True, exist_ok=True)
