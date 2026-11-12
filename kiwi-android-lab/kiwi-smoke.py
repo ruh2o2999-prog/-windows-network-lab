@@ -194,16 +194,28 @@ def main():
     rc,txt=run(['adb','push',str(ext),'/sdcard/Download/Kiwi_R101_Canary_MV2.zip'])
     log_gate('A5a_canary_staged',rc==0,txt)
     if reachable:
-        next_xml=tap_target(xml,['Developer mode','开发者模式'],'developer_mode')
-        if next_xml:xml=next_xml
-        next_xml=tap_target(xml,['from .zip','Load','加载','安装扩展'],'install_selector')
-        if next_xml:
-            xml=next_xml
-            file_ui=tap_target(xml,['Downloads','下载'],'file_downloads')
-            if file_ui:xml=file_ui
-            picked=tap_target(xml,['Kiwi_R101_Canary_MV2.zip','Kiwi_R101_Canary'],'file_pick')
-            if picked:xml=picked
-            time.sleep(5);xml=snapshot('extension_after_import')
+        # Actual R101 sixth-run screenshot: Developer mode already ON.
+        # Never toggle it off; select the existing import-zip button.
+        has_install=clickable(xml,['from .zip','.crx','.user.js']) is not None
+        log_gate('A4d_real_manager_install_button_clickable',has_install,
+                 'Kiwi HTML accessibility exposes + (from .zip/.crx/.user.js), clickable=true')
+        if has_install:
+            picker=tap_target(xml,['from .zip','.crx','.user.js'],'extension_file_picker')
+            if picker:
+                xml=picker
+                chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip','Kiwi R101 Canary'],'file_pick_direct')
+                if not chosen:
+                    child=tap_target(xml,['Downloads','下载','Internal storage','内部存储'],'file_downloads')
+                    if child:xml=child
+                    chosen=tap_target(xml,['Kiwi_R101_Canary_MV2.zip','Kiwi R101 Canary'],'file_pick_after_downloads')
+                if chosen:
+                    xml=chosen
+                    consent=tap_target(xml,['Add extension','Install extension','Add','安装扩展','添加扩展'],'extension_confirm')
+                    if consent:xml=consent
+                    time.sleep(6)
+                    xml=snapshot('extension_after_import')
+                else:
+                    state['errors'].append('DocumentsUI file picker did not expose the staged Canary in current listing; see screenshot and XML')
     imported='Kiwi R101 Probe' in xml
     log_gate('A5b_canary_install_verified',imported,'name visible in extension management UI='+str(imported))
     # Use real website to check browser networking separately from extension gate.
