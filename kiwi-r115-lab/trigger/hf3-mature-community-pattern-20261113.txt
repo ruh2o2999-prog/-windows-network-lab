@@ -1,0 +1,1 @@
+R115 HF3: reuse original #choose-tab via tabs.get, tabs.update, windows.update, tabs.query; verify displayed exact site-url; candidate pinned 1612cbb6a42c97a9f438e8610eaa3b0a52b2f869b31a454694372de249dd820a. Public repo contains no plaintext plugin.
