@@ -48,7 +48,7 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
     for node in tree.iter("node"):
      a=node.attrib;label=(a.get("text","")+" "+a.get("content-desc","")).strip()
      if ("Extension options" in label or "扩展程序选项" in label or "扩展选项" in label) and a.get("clickable")=="true":
-      m=re.match(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]",a.get("bounds",""))
+      m=re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",a.get("bounds",""))
       if m:
        x1,y1,x2,y2=map(int,m.groups())
        bounds=[x1,y1,x2,y2];visible=x2>x1+15 and y2>y1+15 and y1>200 and y2<1870
