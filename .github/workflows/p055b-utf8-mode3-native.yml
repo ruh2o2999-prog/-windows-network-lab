@@ -1,0 +1,140 @@
+name: P055b UTF8 integrated publisher real source-only native Windows
+on:
+  push:
+    branches: [publisher-p055b-utf8-mode3-win2022-20261114]
+    paths:
+      - '.github/workflows/p055b-utf8-mode3-native.yml'
+      - 'ci/p055b_mode3_native.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  p055-real-source:
+    runs-on: windows-2022
+    timeout-minutes: 29
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate one-run RSA3072 receiver certificate (public only)
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force exchange,out | Out-Null
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $key=Join-Path $env:RUNNER_TEMP 'p055b_rsa_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'p055b_rsa_public.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=P055RealMode3PrivateReceiver/' 2>$null
+          if($LASTEXITCODE){throw 'EPHEMERAL_RSA_GENERATION_FAILED'}
+          $p="exchange/p055b-native-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $p
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $p
+          git commit -m "ci: P055 ephemeral PUBLIC cert $env:GITHUB_RUN_ID"
+          if($LASTEXITCODE){throw 'PUBLIC_CERT_COMMIT_FAILED'}
+          git push origin HEAD:publisher-p055b-utf8-mode3-win2022-20261114
+          if($LASTEXITCODE){throw 'PUBLIC_CERT_PUSH_FAILED'}
+          Write-Host "P055_NATIVE_CERT_READY=$p"
+      - name: Receive encrypted original-source-only handoff with exact trusted SHA
+        run: |
+          $ErrorActionPreference='Stop'
+          $branch='publisher-p055b-utf8-mode3-win2022-20261114'
+          $base="exchange/p055b-native-run-$env:GITHUB_RUN_ID"
+          $found=$false
+          $cipher=Join-Path $env:RUNNER_TEMP 'p055b_cipher.p7m'
+          for($attempt=0;$attempt -lt 210;$attempt++){
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if($LASTEXITCODE){throw 'GIT_FETCH_FAILED'}
+            $raw=git show "origin/${branch}:$base.ready.json" 2>$null
+            if($LASTEXITCODE -eq 0 -and $raw){
+              $info=($raw -join '') | ConvertFrom-Json
+              if($info.parts -lt 1 -or $info.parts -gt 32){throw 'PART_COUNT_NOT_ALLOWED'}
+              $b=[System.Text.StringBuilder]::new()
+              for($i=1;$i -le [int]$info.parts;$i++){
+                $p=('{0}.p7m.b64.part{1:D2}' -f $base,$i)
+                $part=git show "origin/${branch}:$p" 2>$null
+                if($LASTEXITCODE -ne 0 -or !$part){throw 'CIPHERTEXT_PART_MISSING'}
+                [void]$b.Append(($part -join '').Trim())
+              }
+              [IO.File]::WriteAllBytes($cipher,[Convert]::FromBase64String($b.ToString()))
+              $observed=(Get-FileHash $cipher -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($observed -ne [string]$info.cipher_sha256){throw 'CIPHER_SHA_MISMATCH'}
+              $found=$true
+              break
+            }
+            Start-Sleep -Seconds 4
+          }
+          if(!$found){throw 'NO_ENCRYPTED_HANDOFF_RECEIVED'}
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $private=Join-Path $env:RUNNER_TEMP 'p055b_rsa_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'p055b_rsa_public.crt'
+          $plain=Join-Path $env:RUNNER_TEMP 'P055b_private_verified.zip'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip $cert -inkey $private -out $plain
+          if($LASTEXITCODE){throw 'CMS_DECRYPT_FAILED'}
+          $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -ne 'ff97d4c86a237bb900c1046a23285bee84d950c918afbc8d84d33bccc935799a'){
+            throw 'P055B_PRIVATE_HANDOFF_SHA_MISMATCH'
+          }
+          $input=Join-Path $env:RUNNER_TEMP 'P055b_private_input'
+          New-Item -ItemType Directory -Force $input | Out-Null
+          $env:P055B_ZIP=$plain
+          $env:P055B_IN=$input
+          @'
+          import os,zipfile,hashlib,json
+          with zipfile.ZipFile(os.environ['P055B_ZIP']) as z:
+              needed={'publisher_p055.exe','p055_sourceonly.zip'}
+              assert set(z.namelist())==needed and z.testzip() is None
+              assert hashlib.sha256(z.read('publisher_p055.exe')).hexdigest()=='c3dcfc25d07451e8b31cb63de0f243b1e5240823f6d8769d45ea1ecd551ba063'
+              assert hashlib.sha256(z.read('p055_sourceonly.zip')).hexdigest()=='e775111f4042ce5c582fe649f25f5718a49a8e5b9935c714378052e78cf206e0'
+              z.extractall(os.environ['P055B_IN'])
+          print('P055B_REAL_SOURCE_ONLY_ENCRYPTED_HANDOFF_SHA_VERIFIED')
+          '@ | python -
+          if($LASTEXITCODE){throw 'P055B_PRIVATE_ARCHIVE_VALIDATION_FAILED'}
+          Remove-Item $plain,$cipher,$private -Force -ErrorAction SilentlyContinue
+          $input | Set-Content (Join-Path $env:RUNNER_TEMP 'p055b_input_location.txt')
+      - name: Real source-only WSH preflight and original Windows publisher mode 3
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=(Get-Content (Join-Path $env:RUNNER_TEMP 'p055b_input_location.txt') -Raw).Trim()
+          python -m py_compile ci/p055b_mode3_native.py ci/p050_native_20261113/native_p050_gui.py
+          if($LASTEXITCODE){throw 'P055B_SCRIPT_SYNTAX_FAILED'}
+          python ci/p055b_mode3_native.py --input $root --fixture-sha e775111f4042ce5c582fe649f25f5718a49a8e5b9935c714378052e78cf206e0 --report-dir out
+          if($LASTEXITCODE){throw 'P055B_NATIVE_MODE3_EXECUTION_FAILED'}
+      - name: Encrypt raw publisher error log for private owner-only diagnostic
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:RUNNER_TEMP 'P055b_private_input'
+          if(Test-Path $folder){
+            $entry=Get-ChildItem $folder -Filter '错误日志_*.txt' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if($entry){
+              $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+              if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+              New-Item -ItemType Directory -Force out | Out-Null
+              & $openssl cms -encrypt -binary -in $entry.FullName -out 'out/p055_diagnostic_encrypted.p7m' -outform DER -aes256 -recip 'ci/p055_diagnostic_public.crt'
+              if($LASTEXITCODE){throw 'P055_DIAGNOSTIC_ENCRYPTION_FAILED'}
+              Write-Host 'P055_ERROR_LOG_ENCRYPTED_WITH_OWNER_ONLY_KEY'
+            }else{Write-Host 'P055_NO_ERROR_LOG_FOUND_FOR_DIAGNOSTIC'}
+          }
+      - name: Cleanup private sources and ephemeral keys
+        if: always()
+        run: |
+          $items=@('P055b_private_input','P055b_private_verified.zip','p055b_cipher.p7m','p055b_rsa_private.pem','p055b_rsa_public.crt','p055b_input_location.txt')
+          foreach($i in $items){$p=Join-Path $env:RUNNER_TEMP $i;if(Test-Path $p){Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue}}
+          Write-Host 'P055_PRIVATE_MATERIAL_NOT_PUBLISHED'
+      - name: Upload sanitized evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p055b-mode3-genuine-sourceonly-sanitized
+          path: |
+            out/*.json
+            out/*.p7m
+          if-no-files-found: warn
+          retention-days: 14
