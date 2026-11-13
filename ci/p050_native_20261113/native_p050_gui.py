@@ -8,11 +8,13 @@ import argparse, ctypes, hashlib, json, os, subprocess, time
 from pathlib import Path
 from ctypes import wintypes
 
-WM_COMMAND=0x111;WM_SETTEXT=0x000C;WM_GETTEXT=0x000D;BM_SETCHECK=0x00F1;BST_UNCHECKED=0
+WM_COMMAND=0x111;WM_SETTEXT=0x000C;WM_GETTEXT=0x000D;BM_SETCHECK=0x00F1;BM_CLICK=0x00F5;BST_UNCHECKED=0
 CB_SETCURSEL=0x014E;CBN_SELCHANGE=1;ID_BUILD=112;ID_SOURCE_MODE=125
 u=ctypes.windll.user32
 u.FindWindowW.argtypes=[wintypes.LPCWSTR,wintypes.LPCWSTR];u.FindWindowW.restype=wintypes.HWND
 u.GetDlgItem.argtypes=[wintypes.HWND,ctypes.c_int];u.GetDlgItem.restype=wintypes.HWND
+u.IsWindowEnabled.argtypes=[wintypes.HWND];u.IsWindowEnabled.restype=wintypes.BOOL
+u.IsWindow.argtypes=[wintypes.HWND];u.IsWindow.restype=wintypes.BOOL
 u.GetWindowThreadProcessId.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.DWORD)]
 u.GetClassNameW.argtypes=[wintypes.HWND,ctypes.c_wchar_p,ctypes.c_int]
 u.GetWindowTextW.argtypes=[wintypes.HWND,ctypes.c_wchar_p,ctypes.c_int]
@@ -55,12 +57,26 @@ def getctrl(hwnd,cid):
 def command(hwnd,id):
     if not u.PostMessageW(hwnd,WM_COMMAND,id,0):raise RuntimeError('COMMAND_POST_FAILED_'+str(id))
 
-def click_modal(hwnd, id):command(hwnd,id)
+def click_modal(hwnd, id):
+    """Known child-control BM_CLICK; unlike parent WM_COMMAND, this follows
+    the already proven V2.11.2 C# native acceptance route.
+    Fail closed rather than claim a queued message means an actual click.
+    """
+    child=u.GetDlgItem(hwnd,id)
+    if not child:raise RuntimeError('NATIVE_EXPECTED_BUTTON_MISSING_'+str(id))
+    if not u.IsWindowEnabled(child):raise RuntimeError('NATIVE_EXPECTED_BUTTON_DISABLED_'+str(id))
+    if not u.PostMessageW(child,BM_CLICK,0,0):raise RuntimeError('NATIVE_BM_CLICK_POST_FAILED_'+str(id))
+    deadline=time.monotonic()+3
+    while time.monotonic()<deadline:
+        if not u.IsWindow(hwnd):return True
+        time.sleep(.08)
+    raise RuntimeError('NATIVE_BM_CLICK_NO_DIALOG_CLOSE_'+str(id))
 
 def build(publisher,source,output,dir_target,remove_qa,report,timeout=185):
     r={'phase':'publisher','real_windows_native':True,'real_original_source':True,
        'publisher_sha256':sha(publisher),'source_zip_sha256':sha(source),'exclude_qa':remove_qa,
        'ui_main_found':False,'qa_dialog_seen':False,'qa_choice_sent':False,
+       'qa_button_close_ack':False,
        'messages_seen':[],'exit_code':None,'generated_sha256':None,'generated_bytes':None,
        'complete':False,'no_office_business_claim':True}
     p=None; started=time.monotonic();last_progress=started
@@ -103,7 +119,7 @@ def build(publisher,source,output,dir_target,remove_qa,report,timeout=185):
                     id=6702 if remove_qa else 6701
                     if remove_qa and not bool(u.IsWindowEnabled(u.GetDlgItem(h,6702))):
                         raise RuntimeError('EXCLUSION_NOT_AVAILABLE_FOR_REAL_INPUT')
-                    click_modal(h,id);r['qa_choice_sent']=True;seen.add(key);sent.append('qa_'+str(id));continue
+                    click_modal(h,id);r['qa_choice_sent']=True;r['qa_button_close_ack']=True;seen.add(key);sent.append('qa_'+str(id));r['messages_seen']=sent[:];continue
                 # The resource preview sets its caption before creating child buttons.
                 # Do not misclassify the short initialization interval as unknown.
                 if title == '安装资源与依赖预览':
@@ -114,12 +130,23 @@ def build(publisher,source,output,dir_target,remove_qa,report,timeout=185):
                     elif title=='生成完成':id=1
                     elif title=='资源分类':id=6 if remove_qa else 7
                     else:id=6
-                    click_modal(h,id);seen.add(key);sent.append('modal_'+title)
+                    click_modal(h,id);seen.add(key);sent.append('modal_'+title);r['messages_seen']=sent[:]
                 elif title:
                     # Unknown modal is a blocker: no blind Yes-click.
                     raise RuntimeError('UNEXPECTED_NATIVE_MODAL_'+hashlib.sha256(title.encode()).hexdigest()[:12])
             time.sleep(.24)
-        if not r['complete']:raise TimeoutError('PUBLISHER_GENERATED_EXE_NOT_CONFIRMED')
+        if not r['complete']:
+            r['output_exists_after_timeout']=output.exists()
+            r['output_size_after_timeout']=output.stat().st_size if output.exists() else None
+            r['native_dialogs_after_timeout']=[{'class':cl,'title_sha12':hashlib.sha256(title.encode()).hexdigest()[:12],
+                                                 'has_keep':bool(u.GetDlgItem(h,6701)),
+                                                 'has_exclude':bool(u.GetDlgItem(h,6702))}
+                                                for h,cl,title in pid_windows(p.pid) if cl=='#32770']
+            # Only a bounded generic category; private status strings must not leak to a public artifact.
+            status=getctrl(main,113)
+            r['native_status_sha12']=hashlib.sha256(status.encode()).hexdigest()[:12]
+            r['native_status_length']=len(status)
+            raise TimeoutError('PUBLISHER_GENERATED_EXE_NOT_CONFIRMED')
         r['messages_seen']=sent
         if not r['qa_dialog_seen'] or not r['qa_choice_sent']:
             raise RuntimeError('NO_EXPLICIT_QA_CONSENT_DIALOG')
