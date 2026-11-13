@@ -42,16 +42,31 @@ jobs:
              >out/tt935-arm32-guest/sdk_install.log 2>&1 || { tail -100 out/tt935-arm32-guest/sdk_install.log; exit 32; }
           test -f "$ANDROID_HOME/system-images/android-25/google_apis/armeabi-v7a/system.img"
           "$ANDROID_HOME/emulator/emulator" -version >out/tt935-arm32-guest/emulator_version.txt 2>&1 || true
+          sudo apt-get update -qq >out/tt935-arm32-guest/apt.log 2>&1
+          sudo apt-get install -y -qq libpulse0 libnss3 libxcb1 libx11-6 libgl1 >>out/tt935-arm32-guest/apt.log 2>&1
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd \
              -n "TT935_API25_TrueARM32" \
              -k "system-images;android-25;google_apis;armeabi-v7a" \
+             -p "$ANDROID_AVD_HOME/TT935_API25_TrueARM32.avd" \
              -d "pixel_2" -f > out/tt935-arm32-guest/avd_create.log 2>&1 < /dev/null
+          cat >"$ANDROID_AVD_HOME/TT935_API25_TrueARM32.ini" <<END_AVD
+avd.ini.encoding=UTF-8
+path=$ANDROID_AVD_HOME/TT935_API25_TrueARM32.avd
+target=android-25
+END_AVD
+          "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd >out/tt935-arm32-guest/avd_list.txt 2>&1 || true
+          "$ANDROID_HOME/emulator/emulator" -list-avds >out/tt935-arm32-guest/emulator_avds.txt 2>&1 || true
+          ls -lah "$ANDROID_AVD_HOME" > out/tt935-arm32-guest/avd_dir.txt
+          grep -q TT935_API25_TrueARM32 out/tt935-arm32-guest/emulator_avds.txt
       - name: Boot ARM32 guest via real QEMU TCG (no x86/ARM translator)
         shell: bash
         run: |
           set -euo pipefail
           export ANDROID_I_WANT_MY_TCG=yes
           export QT_QPA_PLATFORM=offscreen
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
           "$ANDROID_HOME/emulator/emulator" -avd TT935_API25_TrueARM32 \
              -no-window -noaudio -no-boot-anim -no-snapshot \
              -gpu swiftshader_indirect -accel off -memory 3072 -cores 1 \
