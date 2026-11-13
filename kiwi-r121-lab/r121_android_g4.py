@@ -88,10 +88,53 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
   gate("R121-07_passive_safety_no_active_requests",p.get("observedDocuments",0)>=1 and "CSP_NOT_OBSERVED" in codes and "NOSNIFF_NOT_OBSERVED" in codes and p.get("activeRequestsSent")==0,p)
   limits=c.get("limits",{})
   gate("R121-08_resource_cap_live_status",limits.get("maxEnhancedTabs")==2 and limits.get("maxCdpBodyBytes")==2097152 and limits.get("maxCdpSessionBytes")==50331648,{"limits":limits,"storage":c.get("storage")})
-  gate("R121-09_real_network_requests",Fixture.hits>=20,{"requests":Fixture.hits})
+  # Wait for actual real browser fixture requests; do not falsely fail because
+  # fast core diagnostics succeeded after only ~1 second.
+  for _ in range(75):
+   if Fixture.hits>=20:break
+   time.sleep(0.4)
+  gate("R121-09_real_network_requests",Fixture.hits>=20,{"actualHttpRequests":Fixture.hits})
   gate("R121-10_bounded_active_count",c.get("activeCount",999)<=2,{"activeCount":c.get("activeCount")})
-  for n in ("R121-11_actual_256MiB_storage_pressure","R121-12_24h_soak","R121-13_Android16"):
-   report["gates"][n]={"status":"NOT_RUN","evidence":"not asserted by this targeted Android11 test"}
+  # Real extension-origin OPFS stress: write 260 MiB from 4MiB chunks, verify
+  # storage.estimate crossing R121 256MiB soft gate; cleanup ONLY our file.
+  # This is separate from all existing original OPFS/WAL journal data.
+  scratch=None;written=None;pressure=None;restore=None
+  try:
+   written=cdp_eval(ws,'''(async()=>{
+     const root=await navigator.storage.getDirectory();
+     const name='r121-g4-pressure-'+Date.now()+'.tmp';
+     const file=await root.getFileHandle(name,{create:true});
+     const writer=await file.createWritable();
+     const chunk=new Uint8Array(4*1024*1024);
+     for(let i=0;i<65;i++)await writer.write(chunk);
+     await writer.close();
+     const est=await navigator.storage.estimate();
+     return {name,bytes:65*4*1024*1024,estimate:est.usage};
+   })()''',timeout=170)
+   scratch=written["name"]
+   for _ in range(40):
+    pressure=cdp_eval(ws,probe,timeout=18)
+    if pressure.get("capture",{}).get("storage",{}).get("pressure"):break
+    time.sleep(2)
+   st=pressure.get("capture",{}).get("storage",{}) if pressure else {}
+   gate("R121-11_actual_256MiB_storage_pressure",st.get("pressure") is True and st.get("usage",0)>=268435456,{"write":written,"state":st})
+  except Exception as exc:
+   gate("R121-11_actual_256MiB_storage_pressure",False,{"write":written,"error":repr(exc)})
+  finally:
+   if scratch:
+    try:
+     js="(async()=>{await (await navigator.storage.getDirectory()).removeEntry("+json.dumps(scratch)+");return {deletedOnlyTestFile:true}})()"
+     cleared=cdp_eval(ws,js,timeout=45)
+     for _ in range(40):
+      restore=cdp_eval(ws,probe,timeout=18)
+      if not restore.get("capture",{}).get("storage",{}).get("pressure"):break
+      time.sleep(1)
+     recovered=restore.get("capture",{}).get("storage",{}) if restore else {}
+     gate("R121-12_test_file_cleanup_and_storage_recovery",bool(cleared.get("deletedOnlyTestFile")) and recovered.get("pressure") is False,{"delete":cleared,"recovered":recovered})
+    except Exception as exc:
+     gate("R121-12_test_file_cleanup_and_storage_recovery",False,{"error":repr(exc)})
+  report["gates"]["R121-13_24h_soak"]={"status":"NOT_RUN","evidence":"short bounded 256MiB pressure test is not 24h stability proof"}
+  report["gates"]["R121-14_Android16"]={"status":"NOT_RUN","evidence":"only official Kiwi Android11 x86_64 emulator tested"}
   host.shutdown()
  except Exception as e:
   report["errors"].append(repr(e));report["traceback"]=traceback.format_exc()
