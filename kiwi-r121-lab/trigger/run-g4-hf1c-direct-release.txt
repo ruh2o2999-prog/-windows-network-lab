@@ -1,0 +1,1 @@
+R121 G4 HF1c: same SHA pinned private R121-HF1 ZIP, accurate R108 import, official Kiwi published direct asset pinned to size 246183877 + SHA 38a5e730b114fa508bafe75ca57e27a3ed923c9bf3b05d91c1273dd8d9fc18e2. Neither prior workflow failure is a product runtime test.
