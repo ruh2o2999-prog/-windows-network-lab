@@ -1,7 +1,7 @@
 name: P050 original 34 to 28 Windows native publisher and installer (encrypted)
 on:
   push:
-    branches: [publisher-v211210-p050-genuine-20261113]
+    branches: [publisher-v211210-p050-r9-rollback-20261113]
     paths:
       - '.github/workflows/pub-p050-original-native.yml'
       - 'ci/p050_native_20261113/**'
@@ -37,13 +37,13 @@ jobs:
           git add $p
           git commit -m "ci: P050 native one-run PUBLIC cert $env:GITHUB_RUN_ID"
           if($LASTEXITCODE){throw 'PUBLIC_CERT_COMMIT_FAILED'}
-          git push origin HEAD:publisher-v211210-p050-genuine-20261113
+          git push origin HEAD:publisher-v211210-p050-r9-rollback-20261113
           if($LASTEXITCODE){throw 'PUBLIC_CERT_PUSH_FAILED'}
           Write-Host "P050_NATIVE_CERT_READY=$p"
       - name: Receive encrypted original P050 input with fixed trusted SHA
         run: |
           $ErrorActionPreference='Stop'
-          $branch='publisher-v211210-p050-genuine-20261113'
+          $branch='publisher-v211210-p050-r9-rollback-20261113'
           $base="exchange/p050-native-run-$env:GITHUB_RUN_ID"
           $found=$false
           $cipher=Join-Path $env:RUNNER_TEMP 'p050_original_cipher.p7m'
@@ -103,9 +103,9 @@ jobs:
           $ErrorActionPreference='Stop'
           $root=Get-Content (Join-Path $env:RUNNER_TEMP 'p050_input_location.txt') -Raw
           $root=$root.Trim()
-          python -m py_compile ci/p050_native_20261113/native_p050_gui.py ci/p050_native_20261113/run_p050_native.py ci/p050_native_20261113/verify_payload.py ci/p050_native_20261113/native_wf_failure_contract.py
+          python -m py_compile ci/p050_native_20261113/native_p050_gui.py ci/p050_native_20261113/run_p050_native.py ci/p050_native_20261113/run_p050_r9_rollback.py ci/p050_native_20261113/verify_payload.py ci/p050_native_20261113/native_wf_failure_contract.py
           if($LASTEXITCODE){throw 'NATIVE_SCRIPT_SYNTAX_FAILED'}
-          python ci/p050_native_20261113/run_p050_native.py --input $root --report-dir out --verify-module ci/p050_native_20261113/verify_payload.py
+          python ci/p050_native_20261113/run_p050_r9_rollback.py --input $root --report-dir out --verify-module ci/p050_native_20261113/verify_payload.py
           if($LASTEXITCODE){throw 'REAL_P050_34_TO_28_NATIVE_ACCEPTANCE_FAILED'}
       - name: Cleanup private data/keys, retain sanitized results only
         if: always()
@@ -117,7 +117,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: p050-real-native-34-to-28-sanitized-evidence
+          name: p050-r9-rollback-sanitized-evidence
           path: out/*.json
           if-no-files-found: warn
           retention-days: 14
