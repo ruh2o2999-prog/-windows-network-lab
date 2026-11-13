@@ -28,6 +28,8 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class N {
+ public delegate bool Callback(IntPtr h,IntPtr extra);
+ [DllImport("user32.dll",SetLastError=true)] public static extern bool EnumThreadWindows(uint thread,Callback cb,IntPtr extra);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c,string title);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h,StringBuilder s,int max);
  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h,int cmd);
@@ -53,7 +55,19 @@ function Gate([string]$n,[bool]$ok,[string]$detail) {$report.gates[$n]=@{status=
 try {
  $proc=Start-Gui
  $w=[IntPtr]::Zero
- for($i=0;$i -lt 80;$i++){Start-Sleep -Milliseconds 300;$w=[N]::FindWindow($null,'TEST6_REAL_WINDOWS_GUI');if($w -ne [IntPtr]::Zero){break}}
+ for($i=0;$i -lt 80;$i++){Start-Sleep -Milliseconds 300;$w=[N]::FindWindow($null,'TEST6_REAL_WINDOWS_GUI')
+   if($w -eq [IntPtr]::Zero) {
+    $proc.Refresh()
+    $handles=New-Object 'System.Collections.Generic.List[System.IntPtr]'
+    $callback=[N+Callback]{param([IntPtr]$h,[IntPtr]$extra) $handles.Add($h);return $true}
+    foreach($thread in $proc.Threads) {[void][N]::EnumThreadWindows([uint32]$thread.Id,$callback,[IntPtr]::Zero)}
+    foreach($h in $handles) {
+     $title=New-Object System.Text.StringBuilder 256
+     [void][N]::GetWindowText($h,$title,256)
+     if($title.ToString() -eq 'TEST6_REAL_WINDOWS_GUI') {$w=$h;break}
+    }
+   }
+   if($w -ne [IntPtr]::Zero){break}}
  $childDiag='';if(Test-Path "$env:RUNNER_TEMP\test6-child-err.txt"){$childDiag=Get-Content "$env:RUNNER_TEMP\test6-child-err.txt" -Raw}
  Gate 'real_winforms_window' ($w -ne [IntPtr]::Zero) ('Handle='+$w+' ProcExited='+$proc.HasExited+' ChildError='+$childDiag)
  if($w -eq [IntPtr]::Zero){throw 'WinForms window did not appear'}
