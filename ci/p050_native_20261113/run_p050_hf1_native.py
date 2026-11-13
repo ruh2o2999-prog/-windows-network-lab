@@ -23,7 +23,7 @@ import winreg
 
 from native_p050_gui import build, install, pid_windows, u, command
 
-PUBLISHER_SHA = '655fdb5a52802f711cf761192f279c558c6f8b3a55ad701ae16fcac73a304e87'
+PUBLISHER_SHA = '2ad47e4b68a99fab26a92bb4a489fe089dd1edb0c523f2bb5dc24bfb12bfd7a8'
 P050_SHA = 'a357affc922bcd43e59aa9ffd40652b51259c13af0f81cf1316008deb9720abc'
 PHASE_OFFSET = 8 + 2048 * 2 + 128 * 2  # WFRECOVERYV2, MAXP=2048, Windows WCHAR=2
 MARKER = '__WF_fresh_recovery_v2.bin'
