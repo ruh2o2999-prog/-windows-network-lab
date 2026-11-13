@@ -1,0 +1,81 @@
+name: V813 TEST2 verified public network and native host probe
+on:
+  push:
+    branches:
+      - research/v813-test2-infra
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capability-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Download pinned wheel, install, execute, probe Office host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = Join-Path $env:RUNNER_TEMP 'v813-test2-probe'
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+          $out = [ordered]@{
+            schema = 'v813-test2-capability-v1'
+            os = $env:RUNNER_OS
+            runner = $env:ImageOS
+            pypi_https = 'NOT_RUN'
+            wheel_download = 'NOT_RUN'
+            wheel_sha = ''
+            isolated_install = 'NOT_RUN'
+            import = 'NOT_RUN'
+            excel_native_com = 'NOT_APPLICABLE'
+            scope = 'public package capability probe only; no business data; not a Windows VM and not XLSM G5'
+          }
+          try {
+            $http = Invoke-WebRequest -Uri 'https://pypi.org/simple/pyopenvba/' -TimeoutSec 30 -UseBasicParsing
+            $out.pypi_https = if ($http.StatusCode -eq 200) {'PASS'} else {'FAIL'}
+            & python -m pip download --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: --dest $base 'pyOpenVBA==6.6.0'
+            if ($LASTEXITCODE -ne 0) { throw 'pip-download-failed' }
+            $wheel = Get-ChildItem -Path $base -Filter '*.whl' | Select-Object -First 1
+            if (!$wheel) { throw 'wheel-not-downloaded' }
+            $out.wheel_sha = (Get-FileHash -Algorithm SHA256 $wheel.FullName).Hash.ToLowerInvariant()
+            if ($out.wheel_sha -ne '3c1f370d21f0c57d1f11a69d78896209a14b32da389e7c12b88016ff809b6a47') {
+              throw ('wheel-hash-mismatch ' + $out.wheel_sha)
+            }
+            $out.wheel_download = 'PASS'
+            $installDir = Join-Path $base 'installed'
+            & python -m pip install --disable-pip-version-check --no-index --no-deps --target $installDir $wheel.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'isolated-install-failed' }
+            $out.isolated_install = 'PASS'
+            $env:PYTHONPATH = $installDir
+            & python -c 'from pyopenvba.apps.excel import ExcelApplication; print("PYOPENVBA_IMPORT_OK")'
+            if ($LASTEXITCODE -ne 0) { throw 'import-failed' }
+            $out.import = 'PASS'
+          } catch {
+            $out.error = $_.Exception.Message
+          }
+          if ($env:RUNNER_OS -eq 'Windows') {
+            try {
+              $xl = New-Object -ComObject Excel.Application -ErrorAction Stop
+              $out.excel_native_com = 'PASS'
+              $out.excel_version = $xl.Version
+              $xl.Quit()
+              [System.Runtime.InteropServices.Marshal]::ReleaseComObject($xl) | Out-Null
+            } catch {
+              $out.excel_native_com = 'NOT_AVAILABLE'
+              $out.excel_reason = $_.Exception.Message
+            }
+          }
+          $out | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 (Join-Path $base 'report.json')
+          Get-Content (Join-Path $base 'report.json')
+          if ($out.import -ne 'PASS') { exit 2 }
+      - name: Upload non-sensitive report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v813-test2-probe-${{ matrix.os }}
+          path: ${{ runner.temp }}/v813-test2-probe/report.json
+          if-no-files-found: warn
+          retention-days: 7
