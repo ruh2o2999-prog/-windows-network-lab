@@ -1,7 +1,7 @@
-name: P050 R10-HF1 crash recovery and user edit negative (isolated candidate)
+name: P050 R10-HF1b corrected manifest validation native
 on:
   push:
-    branches: [publisher-v211210-p050-r10-hf1-recovery-20261113]
+    branches: [publisher-v211210-p050-r10-hf1b-recovery-20261113]
     paths:
       - '.github/workflows/pub-p050-r10-hf1-native.yml'
       - 'ci/p050_native_20261113/**'
@@ -37,13 +37,13 @@ jobs:
           git add $p
           git commit -m "ci: P050 native one-run PUBLIC cert $env:GITHUB_RUN_ID"
           if($LASTEXITCODE){throw 'PUBLIC_CERT_COMMIT_FAILED'}
-          git push origin HEAD:publisher-v211210-p050-r10-hf1-recovery-20261113
+          git push origin HEAD:publisher-v211210-p050-r10-hf1b-recovery-20261113
           if($LASTEXITCODE){throw 'PUBLIC_CERT_PUSH_FAILED'}
           Write-Host "P050_NATIVE_CERT_READY=$p"
       - name: Receive encrypted original P050 input with fixed trusted SHA
         run: |
           $ErrorActionPreference='Stop'
-          $branch='publisher-v211210-p050-r10-hf1-recovery-20261113'
+          $branch='publisher-v211210-p050-r10-hf1b-recovery-20261113'
           $base="exchange/p050-native-run-$env:GITHUB_RUN_ID"
           $found=$false
           $cipher=Join-Path $env:RUNNER_TEMP 'p050_original_cipher.p7m'
@@ -78,7 +78,7 @@ jobs:
           & $openssl cms -decrypt -binary -inform DER -in $cipher -recip $cert -inkey $private -out $plain
           if($LASTEXITCODE){throw 'CMS_DECRYPT_FAILED'}
           $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($digest -ne '36e0dea0058f1d7cfbf2a29155ee2256c86443fc3011ef6acd5acc165b1bf105'){
+          if($digest -ne '23525a648532b2195315cdbcb0b0294794c67eaf6eb2d1ed1827ead6f4942d19'){
             throw 'ORIGINAL_P050_HANDOFF_SHA_MISMATCH'
           }
           $input=Join-Path $env:RUNNER_TEMP 'P050_Original_Input'
