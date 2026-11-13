@@ -3,7 +3,7 @@ on:
   push:
     branches: [publisher-p055-mode3-integrated-win2022-20261114]
     paths:
-      - '.github/workflows/p055-real-mode3-native.yml'
+      - '.github/workflows/p055-integrated-mode3-native.yml'
       - 'ci/p055_mode3_native.py'
   workflow_dispatch:
 permissions:
@@ -78,7 +78,7 @@ jobs:
           & $openssl cms -decrypt -binary -inform DER -in $cipher -recip $cert -inkey $private -out $plain
           if($LASTEXITCODE){throw 'CMS_DECRYPT_FAILED'}
           $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($digest -ne 'e9bf69de434ef36f17e82473dcaf45db53a0fcf3d01a4bfd28d01b4ac9e65d04'){
+          if($digest -ne '4a83b03fd8751933decae45b7afe7fec6cea46cc7dbf0825a2839f46ca76fe22'){
             throw 'P055_PRIVATE_HANDOFF_SHA_MISMATCH'
           }
           $input=Join-Path $env:RUNNER_TEMP 'P055_private_input'
@@ -88,11 +88,10 @@ jobs:
           @'
           import os,zipfile,hashlib,json
           with zipfile.ZipFile(os.environ['P055_ZIP']) as z:
-              needed={'publisher_hf1b.exe','p055_source_only.zip','input_integrity.json'}
+              needed={'publisher_p055.exe','p055_sourceonly.zip'}
               assert set(z.namelist())==needed and z.testzip() is None
-              m=json.loads(z.read('input_integrity.json'))
-              for n,digest in m['files'].items():
-                  assert hashlib.sha256(z.read(n)).hexdigest()==digest
+              assert hashlib.sha256(z.read('publisher_p055.exe')).hexdigest()=='17f0de94a5fc18d615ba5e9fb9051faf6ed21b994d8ad132a70e18f682d2f2a7'
+              assert hashlib.sha256(z.read('p055_sourceonly.zip')).hexdigest()=='e775111f4042ce5c582fe649f25f5718a49a8e5b9935c714378052e78cf206e0'
               z.extractall(os.environ['P055_IN'])
           print('P055_REAL_SOURCE_ONLY_ENCRYPTED_HANDOFF_SHA_VERIFIED')
           '@ | python -
