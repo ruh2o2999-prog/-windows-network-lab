@@ -1,0 +1,1 @@
+R121 scoped G4 storage-pressure follow-up. Preserve all original product bytes at SHA 5a61187f35ecc77a5515760acd59b6085d3965d5235e27ef7634e7820d15a6d8. Verify real OPFS 260MiB storage pressure, cleanup ONLY scratch file, 20 actual HTTP fixture requests. Do not classify 24h soak or Android16 as tested.
