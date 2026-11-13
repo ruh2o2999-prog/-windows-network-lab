@@ -1,0 +1,1 @@
+R121-G4 HF1b: same pinned private plugin SHA256 5a61187f35ecc77a5515760acd59b6085d3965d5235e27ef7634e7820d15a6d8, tested native installation in 43463282955; ONLY test runner import path now fixed. Run targeted auto CDP + passive security.
