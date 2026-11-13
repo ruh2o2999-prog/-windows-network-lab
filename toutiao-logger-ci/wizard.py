@@ -51,6 +51,9 @@ try:
     if find(nodes,["Allow","允许"]):
         tap(nodes,["Allow","允许"],"notification_dialog_tapped")
     nodes=ui("01_notifications_checked")
+    if find(nodes,["Allow one-time access","允许一次性访问","Allow access"],exact=False):
+        tap(nodes,["Allow one-time access","允许一次性访问","Allow access"],"android15_log_access_confirmation",exact=False)
+        nodes=ui("01b_log_access_granted")
     if find(nodes,["Skip","跳过"]):
         tap(nodes,["Skip","跳过"],"tutorial_skip")
     nodes=ui("02_home")
