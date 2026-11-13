@@ -1,0 +1,1 @@
+Original G3 run 43528420763 failed before Android in shell checksum syntax. G2 source SHA 85159c957fe2b92936f3da1e68ed975be0af5810d89331a1b961d15993c2eace unchanged. Fixed preflight run locally with bash -n and live sha256sum: PASS. No plugin source change. Retry one frozen Android G3.
