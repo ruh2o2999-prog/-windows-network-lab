@@ -58,18 +58,26 @@ def command(hwnd,id):
     if not u.PostMessageW(hwnd,WM_COMMAND,id,0):raise RuntimeError('COMMAND_POST_FAILED_'+str(id))
 
 def click_modal(hwnd, id):
-    """Known child-control BM_CLICK; unlike parent WM_COMMAND, this follows
-    the already proven V2.11.2 C# native acceptance route.
-    Fail closed rather than claim a queued message means an actual click.
+    """Drive native HWND child button using the proven BM_CLICK route.
+
+    Windows can publish a MessageBox caption before the IDOK/IDYES child
+    control is fully created. That initialization race is NOT a product error.
+    Wait a bounded interval for the exact button, require it enabled, then
+    send BM_CLICK and independently require the dialog to disappear.
     """
-    child=u.GetDlgItem(hwnd,id)
-    if not child:raise RuntimeError('NATIVE_EXPECTED_BUTTON_MISSING_'+str(id))
-    if not u.IsWindowEnabled(child):raise RuntimeError('NATIVE_EXPECTED_BUTTON_DISABLED_'+str(id))
+    begin=time.monotonic();child=None
+    while time.monotonic()-begin < 5:
+        if not u.IsWindow(hwnd):raise RuntimeError('EXPECTED_MODAL_GONE_BEFORE_BUTTON_'+str(id))
+        candidate=u.GetDlgItem(hwnd,id)
+        if candidate and u.IsWindowEnabled(candidate):
+            child=candidate;break
+        time.sleep(.06)
+    if not child:raise RuntimeError('NATIVE_EXPECTED_BUTTON_NOT_READY_'+str(id))
     if not u.PostMessageW(child,BM_CLICK,0,0):raise RuntimeError('NATIVE_BM_CLICK_POST_FAILED_'+str(id))
-    deadline=time.monotonic()+3
+    deadline=time.monotonic()+4
     while time.monotonic()<deadline:
         if not u.IsWindow(hwnd):return True
-        time.sleep(.08)
+        time.sleep(.06)
     raise RuntimeError('NATIVE_BM_CLICK_NO_DIALOG_CLOSE_'+str(id))
 
 def build(publisher,source,output,dir_target,remove_qa,report,timeout=185):
