@@ -106,6 +106,22 @@ jobs:
           if($LASTEXITCODE){throw 'P055_SCRIPT_SYNTAX_FAILED'}
           python ci/p055_mode3_native.py --input $root --fixture-sha e775111f4042ce5c582fe649f25f5718a49a8e5b9935c714378052e78cf206e0 --report-dir out
           if($LASTEXITCODE){throw 'P055_NATIVE_MODE3_EXECUTION_FAILED'}
+      - name: Encrypt raw publisher error log for private owner-only diagnostic
+        if: always()
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder=Join-Path $env:RUNNER_TEMP 'P055_private_input'
+          if(Test-Path $folder){
+            $entry=Get-ChildItem $folder -Filter '错误日志_*.txt' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if($entry){
+              $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+              if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+              New-Item -ItemType Directory -Force out | Out-Null
+              & $openssl cms -encrypt -binary -in $entry.FullName -out 'out/p055_diagnostic_encrypted.p7m' -outform DER -aes256 -recip 'ci/p055_diagnostic_public.crt'
+              if($LASTEXITCODE){throw 'P055_DIAGNOSTIC_ENCRYPTION_FAILED'}
+              Write-Host 'P055_ERROR_LOG_ENCRYPTED_WITH_OWNER_ONLY_KEY'
+            }else{Write-Host 'P055_NO_ERROR_LOG_FOUND_FOR_DIAGNOSTIC'}
+          }
       - name: Cleanup private sources and ephemeral keys
         if: always()
         run: |
@@ -117,6 +133,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: p055-mode3-genuine-sourceonly-sanitized
-          path: out/*.json
+          path: |
+            out/*.json
+            out/*.p7m
           if-no-files-found: warn
           retention-days: 14
