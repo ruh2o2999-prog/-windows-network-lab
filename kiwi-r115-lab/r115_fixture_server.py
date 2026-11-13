@@ -12,7 +12,8 @@ window.r115Info={status:'booting',blobUrl:null,appendCalls:0};
  if(!window.MediaSource){status.textContent='NO_MSE';r115Info.status='NO_MSE';return;}
  const mime='video/mp4; codecs="avc1.64000c, mp4a.40.2"';
  if(!MediaSource.isTypeSupported(mime)){status.textContent='UNSUPPORTED_CODEC';r115Info.status='UNSUPPORTED_CODEC';return;}
- const media=new MediaSource();const url=URL.createObjectURL(media);
+ r115Info.beforeCreate={at:Date.now(),state:document.readyState,r93:!!window.__kiwiMseProbeR93,r94:!!window.__kiwiMsePageR94,r93Sources:window.__kiwiMseProbeR93?.knownSources??null,r94Sources:window.__kiwiMsePageR94?.sourcesObserved??null};
+ const media=new MediaSource();const url=URL.createObjectURL(media);r115Info.afterCreate={at:Date.now(),r93Sources:window.__kiwiMseProbeR93?.knownSources??null,r94Sources:window.__kiwiMsePageR94?.sourcesObserved??null};
  video.src=url;r115Info.blobUrl=url;
  media.addEventListener('sourceopen',()=>{
    try {const sb=media.addSourceBuffer(mime);r115Info.trackReady=true;r115Info.status='READY';status.textContent='R115_READY';
