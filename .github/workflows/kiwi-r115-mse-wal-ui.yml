@@ -1,4 +1,4 @@
-name: Kiwi R115 HF4 independently gated Android MSE WAV OPFS
+name: Kiwi R115 HF5 MAIN-world document_start MV2 Kiwi compatibility test
 on:
   push:
     branches: [kiwi-r115-mse-wal-ui]
@@ -88,7 +88,7 @@ jobs:
             assert z.testzip() is None
             m=json.loads(z.read('manifest.json'))
             assert m['manifest_version']==2 and m['version']=='0.4.59' and m.get('version_name','').startswith('0.4.59-rc3-r115')
-          expected='32b29ad046fe96b05ca67b51a02ed7afc951986132b3c96da0117e59bcd81d68'
+          expected='9dc2c5895526d60e9cbf881fdc652554dac9079b04bd7974898828e53c294910'
           assert hashlib.sha256(open(p,'rb').read()).hexdigest()==expected
           report={'source':'R115 encrypted session-specific MV2 archive','sha256':expected,'bytes':__import__('os').path.getsize(p),'version':m['version'],'name':m['name']}
           open('out/formal_package_provenance.json','w').write(json.dumps(report,ensure_ascii=False,indent=2))
@@ -104,7 +104,7 @@ jobs:
         env:
           R103_PRODUCTION_ZIP: /tmp/kiwi-r104-production.zip
           R110_EXPECTED_VERSION: '0.4.59'
-          R110_EXPECTED_SHA256: 32b29ad046fe96b05ca67b51a02ed7afc951986132b3c96da0117e59bcd81d68
+          R110_EXPECTED_SHA256: 9dc2c5895526d60e9cbf881fdc652554dac9079b04bd7974898828e53c294910
         with:
           api-level: 30
           target: google_apis
