@@ -19,8 +19,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install -q websocket-client==1.8.0
-          python3 -m py_compile kiwi-r122-lab/r122_soak_probe.py
-          echo '85159c957fe2b92936f3da1e68ed975be0af5810d89331a1b961d15993c2eace  kiwi-r122-lab/r122_soak_probe.py' | sha256sum -c - kiwi-r121-lab/r121_android_g4.py kiwi-r109-lab/r109_history_recovery.py kiwi-r104-lab/r104-production-network-test.py kiwi-android-lab/download_kiwi.py
+          echo '85159c957fe2b92936f3da1e68ed975be0af5810d89331a1b961d15993c2eace  kiwi-r122-lab/r122_soak_probe.py' | sha256sum -c -
+          python3 -m py_compile kiwi-r122-lab/r122_soak_probe.py kiwi-r121-lab/r121_android_g4.py kiwi-r109-lab/r109_history_recovery.py kiwi-r104-lab/r104-production-network-test.py kiwi-android-lab/download_kiwi.py
           mkdir -p out
           # Official Kiwi release fixed tag and SHA from original successful R102/117 runs.
           # Direct release asset avoids GitHub releases API anonymous rate limits.
