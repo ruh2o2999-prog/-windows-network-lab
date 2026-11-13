@@ -4,10 +4,10 @@ No app plaintext, signed-download URL, or private key in committed code/artifact
 Do not sign in with an account or interact with user data.
 """
 import datetime,hashlib,json,pathlib,re,subprocess,time,xml.etree.ElementTree as ET
-APK=pathlib.Path("/tmp/tt935-v041-private.apk")
+APK=pathlib.Path("/tmp/tt935-v043-private.apk")
 OUT=pathlib.Path("out/tt935-v041-real-avd");OUT.mkdir(parents=True,exist_ok=True)
 PKG="com.ss.android.article.news"
-R={"tested_apk":"REAL TT935 V0.4.1 signed APK (private encrypted transport)",
+R={"tested_apk":"REAL TT935 V0.4.3 signed APK (private encrypted transport)",
    "sha256":hashlib.sha256(APK.read_bytes()).hexdigest(),"android":{},"steps":{},"images":[]}
 def adb(*args, timeout=80):
  try:
