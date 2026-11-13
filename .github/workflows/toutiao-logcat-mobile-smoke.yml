@@ -1,0 +1,59 @@
+name: Toutiao 9.3.5 / mobile LogSleuth public APK smoke
+on:
+  push:
+    branches: [toutiao935-mobile-logger-test-v01]
+    paths:
+      - '.github/workflows/toutiao-logcat-mobile-smoke.yml'
+      - 'toutiao-logger-ci/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  logsleuth-emulator:
+    name: "LogSleuth Android API ${{ matrix.api }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm public-only test files
+        run: |
+          python3 -m py_compile toutiao-logger-ci/smoke.py
+          mkdir -p out
+          echo "Do not upload any private Toutiao APK or personal logs."
+      - name: Fetch official public LogSleuth v0.4.1 release
+        run: |
+          curl -fL --retry 5 --retry-delay 3 \
+            -o out/LogSleuth-0.4.1.APK \
+            https://github.com/shiaho777/LogSleuth/releases/download/v0.4.1/LogSleuth-0.4.1.APK
+          test "$(stat -c %s out/LogSleuth-0.4.1.APK)" -gt 2000000
+          sha256sum out/LogSleuth-0.4.1.APK > out/public-apk.sha256
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm || true
+      - name: Boot real Android emulator, install APK, collect UI and system logs
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 toutiao-logger-ci/smoke.py
+      - name: Upload real install/start/UI/logs evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toutiao-logger-real-avd-api-${{ matrix.api }}
+          path: |
+            out/toutiao-logger-v01/
+            out/public-apk.sha256
+          if-no-files-found: warn
