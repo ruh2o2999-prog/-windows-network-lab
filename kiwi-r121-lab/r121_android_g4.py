@@ -36,12 +36,34 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
   gate("R121-02_installed_extension_id",bool(extid),{"id":extid})
   detail=tap_target(xml,["Details","详情"],"r121_extension_details")
   xml=detail or xml
-  for i in range(12):
-   if any(x in xml for x in ("Extension options","扩展程序选项","扩展选项")):
-    nextxml=tap_target(xml,["Extension options","扩展程序选项","扩展选项"],"r121_options")
-    if not nextxml:nextxml=tap_text_any(xml,["Extension options","扩展程序选项","扩展选项"],"r121_options")
-    if nextxml:xml=nextxml;break
-   run(["adb","shell","input","swipe","950","1450","950","460","300"]);time.sleep(0.7);xml=snapshot("r121_options_scroll_"+str(i))
+  # On real Kiwi 137 details page the off-screen Extension options node
+  # appears in UI XML with bounds [0,0][0,0]. Do not mistake it for a click.
+  # Scroll the genuine details page until the actual physical bounds are valid.
+  import xml.etree.ElementTree as ET
+  opened=False;trace=[]
+  for i in range(16):
+   visible=False;bounds=None
+   try:
+    tree=ET.fromstring(xml[xml.find("<?xml"):])
+    for node in tree.iter("node"):
+     a=node.attrib;label=(a.get("text","")+" "+a.get("content-desc","")).strip()
+     if ("Extension options" in label or "扩展程序选项" in label or "扩展选项" in label) and a.get("clickable")=="true":
+      m=re.match(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]",a.get("bounds",""))
+      if m:
+       x1,y1,x2,y2=map(int,m.groups())
+       bounds=[x1,y1,x2,y2];visible=x2>x1+15 and y2>y1+15 and y1>200 and y2<1870
+       if visible:break
+   except Exception as exc:trace.append({"i":i,"parseError":repr(exc)})
+   trace.append({"i":i,"visible":visible,"bounds":bounds})
+   if visible:
+    nextxml=tap_target(xml,["Extension options","扩展程序选项","扩展选项"],"r121_real_visible_options")
+    if nextxml:
+     xml=nextxml;opened=True;break
+   run(["adb","shell","input","swipe","810","1510","810","460","440"])
+   time.sleep(1)
+   xml=snapshot("r121_scrolled_details_"+str(i))
+  report["native_options_trace"]=trace
+  gate("R121-03a_native_visible_options",opened,{"trace":trace[-8:]})
   info=probe_cdp(run,OUT);ws=info.get("_websocket_url")
   if not ws and extid:
    type_internal_url("chrome-extension://"+extid+"/panel.html","r121_panel_fallback")
