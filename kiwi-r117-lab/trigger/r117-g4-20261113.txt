@@ -1,0 +1,1 @@
+R117: isolated official Kiwi Android 11 MSE real file download with independently measured /sdcard/Download SHA256. Package SHA256 1414d43508e9b692041fd8945338e580ce8d89713210c7f381ba91d62242f31b. Never publish plaintext plugin; receive one-time RSA cert and CMS ciphertext.
