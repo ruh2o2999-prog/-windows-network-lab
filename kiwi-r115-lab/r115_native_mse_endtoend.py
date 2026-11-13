@@ -61,20 +61,26 @@ def execute(run,snapshot,state,out,fixture_url,type_internal_url,native_extensio
   gate('R115_06_real_page_Main_world_MSE_and_sourcebuffer',page and page.get('info',{}).get('status')=='READY' and page.get('pageHook') and page.get('diagHook') and str(page['info'].get('blobUrl','')).startswith('blob:http://127.0.0.1:18765/'),page)
   # Original panel JavaScript is closure-scoped. CDP MUST use exposed native DOM
   # controls, not inject calls to private functions (R115 first-run test error).
-  navigation=cdp_eval(ws,'''(async()=>{
-    const tabs=await new Promise((ok,no)=>chrome.tabs.query({},x=>chrome.runtime.lastError?no(Error(chrome.runtime.lastError.message)):ok(x)));
-    const mine=tabs.filter(t=>(t.url||'').startsWith(location.origin+'/panel.html'));
-    if(!mine.length)throw Error('No genuine extension panel tab');
-    const panel=mine.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0))[0];
+  # R115 HF2: navigate the current genuine extension panel itself; HF1
+  # proved chrome.tabs.update() did not change its target URL on Kiwi Android.
+  navigation=cdp_eval(ws,'''(()=>{
     const to=location.origin+'/panel.html?tabId='+'''+str(tab_id)+''';
-    setTimeout(()=>chrome.tabs.update(panel.id,{url:to,active:true}),400);
-    return {panelId:panel.id,target:to,tabId:'''+str(tab_id)+'''};
+    setTimeout(()=>location.assign(to),250);
+    return {target:to,method:'panel_self_location_assign'};
   })()''',timeout=30)
   record['panel_navigation']=navigation
   time.sleep(5)
-  newpanel=probe_cdp(run,out);ws=newpanel.get('_websocket_url')
-  gate('R115_07_panel_original_tabId_route_reinitialized',bool(ws) and newpanel.get('found_target',{}).get('url','').endswith('tabId='+str(tab_id)),
-      {'tabId':tab_id,'route':newpanel.get('found_target'),'planned':navigation})
+  # Verify the actual page selected by the original UI instead of relying
+  # only on the browser's target URL, which can be stale.
+  found=[t for t in targets() if '/panel.html?tabId='+str(tab_id) in (t.get('url') or '') and t.get('webSocketDebuggerUrl')]
+  if found:
+   ws=found[0]['webSocketDebuggerUrl']
+  else:
+   newpanel=probe_cdp(run,out);ws=newpanel.get('_websocket_url')
+  selected=cdp_eval(ws,'''({href:location.href,siteUrl:document.getElementById('site-url')?.textContent||'',loaded:document.readyState,site:document.getElementById('site')?.textContent||''})''')
+  record['panel_target_after_reload']=selected
+  gate('R115_07_panel_original_tabId_route_reinitialized',bool(ws) and selected.get('siteUrl')==URL,
+      {'tabId':tab_id,'selected':selected,'planned':navigation})
   ui=None
   for n in range(15):
    ui=cdp_eval(ws,'''(()=>{
