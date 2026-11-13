@@ -47,7 +47,7 @@ jobs:
           cores: 2
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: python3 toutiao-logger-ci/smoke.py
+          script: python3 toutiao-logger-ci/smoke.py && python3 toutiao-logger-ci/wizard.py
       - name: Upload real install/start/UI/logs evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,5 +55,6 @@ jobs:
           name: toutiao-logger-real-avd-api-${{ matrix.api }}
           path: |
             out/toutiao-logger-v01/
+            out/toutiao-logger-v02/
             out/public-apk.sha256
           if-no-files-found: warn
