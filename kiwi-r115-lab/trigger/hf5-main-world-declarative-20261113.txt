@@ -1,0 +1,1 @@
+HF5: Chromium official MAIN world document_start manifest candidate (MV2 compatibility unverified). Same HF4 active-tab fix. Public script adds actual before/after MediaSource hook timing. All previous R107 failures remain. Private ZIP SHA 9dc2c5895526d60e9cbf881fdc652554dac9079b04bd7974898828e53c294910; no plaintext uploaded.
