@@ -1,0 +1,98 @@
+name: Android reverse V1.1 NET BOOT REUSE genuine clean-run
+on:
+  push:
+    branches: [android-coldboot-net-reuse-v11]
+    paths:
+      - '.github/workflows/android-coldboot-net-reuse-v11.yml'
+      - 'android-coldboot-v11/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cleanroom-android:
+    name: Cleanroom public APK Android API ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 36]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - uses: android-actions/setup-android@v3
+      - name: NET-01 Independent host DNS, HTTPS and dependency network probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/coldboot_v11
+          python3 -m py_compile android-coldboot-v11/ci/network_host.py android-coldboot-v11/ci/static_probe.py android-coldboot-v11/ci/emulator_smoke.py
+          python3 android-coldboot-v11/ci/network_host.py
+          env | cut -d= -f1 | grep -E '^(ANDROID_HOME|ANDROID_SDK_ROOT|JAVA_HOME|HTTP_PROXY|HTTPS_PROXY)' | sort > out/coldboot_v11/env_variable_NAMES_only.txt || true
+          date -u > out/coldboot_v11/runner_utc.txt
+      - name: NET-02 Install known Android SDK platform and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0' | tee out/coldboot_v11/sdk_packages.txt
+      - name: BOOT-01 Recover official JADX Apktool Smali Baksmali in networked clean runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile android-reverse-toolchain/build_bundle.py
+          python3 android-reverse-toolchain/build_bundle.py > out/coldboot_v11/BOOT_official_toolchain.log
+          python3 - <<'PY'
+          import json,pathlib
+          r=json.loads(pathlib.Path("out/android_reverse_offline_v1/evidence/test_report.json").read_text())
+          assert r["summary"]["smoke_roundtrip"] and r["summary"]["jadx_java"] and r["summary"]["apktool_manifest"],r["summary"]
+          pathlib.Path("out/coldboot_v11/BOOT_toolchain_gates.json").write_text(json.dumps({"summary":r["summary"],"downloads":r["downloads"]},indent=2))
+          PY
+      - name: REUSE-01 Build new and generic public network fixture APK (not Toutiao)
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p android-coldboot-v11/fixture --no-daemon :app:assembleDebug > out/coldboot_v11/gradle_build.log 2>&1 || { tail -140 out/coldboot_v11/gradle_build.log; exit 10; }
+          test -s android-coldboot-v11/fixture/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum android-coldboot-v11/fixture/app/build/outputs/apk/debug/app-debug.apk > out/coldboot_v11/fixture-apk.sha256
+      - name: REUSE-02 Truly decompile newly built APK with different public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 android-coldboot-v11/ci/static_probe.py
+      - name: NET-03 Verify KVM availability and emulator route
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm | tee out/coldboot_v11/kvm.txt
+      - name: BOOT-02 Boot real Android and REUSE-03 install, HTTPS, UI, screenshots, logcat
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 android-coldboot-v11/ci/emulator_smoke.py
+      - name: Upload actual tests, original logs, screenshots and generic public APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-coldboot-v11-api-${{ matrix.api }}-evidence
+          path: |
+            out/coldboot_v11/
+            android-coldboot-v11/fixture/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+          retention-days: 28
