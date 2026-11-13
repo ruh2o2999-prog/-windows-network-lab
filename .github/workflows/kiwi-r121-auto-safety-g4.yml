@@ -29,6 +29,7 @@ jobs:
           needle="    snapshot('r103_formal_manager_final')"
           assert s.count(needle)==1,'Kiwi original successful install seam changed; fail closed'
           addition="\n".join([
+            "    sys.path.insert(0,str(Path('kiwi-r108-lab').absolute()))",
             "    sys.path.insert(0,str(Path('kiwi-r109-lab').absolute()))",
             "    sys.path.insert(0,str(Path('kiwi-r121-lab').absolute()))",
             "    from r121_android_g4 import execute as r121_execute",
