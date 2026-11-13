@@ -78,7 +78,7 @@ jobs:
           & $openssl cms -decrypt -binary -inform DER -in $cipher -recip $cert -inkey $private -out $plain
           if($LASTEXITCODE){throw 'CMS_DECRYPT_FAILED'}
           $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($digest -ne '4a83b03fd8751933decae45b7afe7fec6cea46cc7dbf0825a2839f46ca76fe22'){
+          if($digest -ne '4bb06a4db82df7db9361bc5dab71b703e32fe1b040a736eccef4440e73de2380'){
             throw 'P055_PRIVATE_HANDOFF_SHA_MISMATCH'
           }
           $input=Join-Path $env:RUNNER_TEMP 'P055_private_input'
