@@ -10,6 +10,8 @@ not as a mode-three product success. Never publishes private files or paths.
 import argparse, ctypes, hashlib, json, os, subprocess, time, zipfile
 from pathlib import Path
 from ctypes import wintypes
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent/'p050_native_20261113'))
 from native_p050_gui import pid_windows, u, setctrl, getctrl, command, click_modal, sha
 
 PUBLISHER_SHA='2ad47e4b68a99fab26a92bb4a489fe089dd1edb0c523f2bb5dc24bfb12bfd7a8'
