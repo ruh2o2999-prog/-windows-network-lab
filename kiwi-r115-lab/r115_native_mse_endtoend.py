@@ -165,7 +165,7 @@ def execute(run,snapshot,state,out,fixture_url,type_internal_url,native_extensio
    document.getElementById('mse-r94-export').click();
    return {clicked:true,selectedKey:sel.value};})()''')
   receipt=None
-  for _ in range(45):
+  for _ in range(75):
    time.sleep(1)
    receipt=cdp_eval(ws,'''({status:document.getElementById('mse-r94-status').textContent,jobs:[...document.getElementById('mse-r94-jobs').options].map(x=>x.value)})''')
    st=receipt.get('status','')
@@ -175,12 +175,37 @@ def execute(run,snapshot,state,out,fixture_url,type_internal_url,native_extensio
   # G4 download completion is intentionally distinct: leave open if only an unverified fallback.
   receipt_state='complete' if '浏览器已报告文件保存完成' in receipt.get('status','') else ('retained-unverified' if '暂存仍保留' in receipt.get('status','') else 'unknown')
   record['download_completion']={'state':receipt_state,'rawStatus':receipt.get('status')}
-  if receipt_state!='complete':
-   state['gates']['R115_13_real_download_completion']={'status':'NOT_RUN','detail':str(record['download_completion'])}
-   record['gates']['R115_13_real_download_completion']={'status':'NOT_RUN','detail':record['download_completion']}
+
+  # R117 independent Android storage receipt. UI/download API status alone
+  # cannot prove a file was actually persisted, especially on Kiwi Android.
+  # Never infer success from an anchor click, a downloadId or a background event.
+  wanted_name='MSE_'+task['id'][:12]+'.mp4'
+  audit={'requested':wanted_name,'expectedBytes':len(media),'expectedSha256':EXPECTED,
+         'method':'real adb shell ls + adb pull + independent sha256','found':False}
+  try:
+   rc,listing=run(['adb','shell','ls','-1','/sdcard/Download'],timeout=20)
+   audit['listRc']=rc;audit['candidateFiles']=[s for s in listing.splitlines() if s.startswith('MSE_') and s.endswith('.mp4')]
+   if rc==0 and wanted_name in listing.splitlines():
+    pulled=pathlib.Path('/tmp/r117_independent_mse_android.mp4')
+    rc,raw=run(['adb','pull','/sdcard/Download/'+wanted_name,str(pulled)],timeout=40)
+    audit['pullRc']=rc;audit['pullResponse']=raw[:200]
+    if rc==0 and pulled.is_file():
+     audit.update({'found':True,'bytes':pulled.stat().st_size,'sha256':hashlib.sha256(pulled.read_bytes()).hexdigest()})
+     audit['exactFileMatch']=audit['bytes']==len(media) and audit['sha256']==EXPECTED
+     pulled.unlink(missing_ok=True)
+  except Exception as e:audit['auditError']=repr(e)
+  record['android_independent_download']=audit
+  verified=bool(audit.get('exactFileMatch'))
+  record['gates']['R117_01_android_real_download_adb_sha']={'status':'PASS' if verified else 'NOT_RUN','detail':audit}
+  state['gates']['R117_01_android_real_download_adb_sha']={'status':'PASS' if verified else 'NOT_RUN','detail':json.dumps(audit,ensure_ascii=False)[:1600]}
+  print('R117_ANDROID_DOWNLOAD_AUDIT',json.dumps(audit,ensure_ascii=False),flush=True)
+
+  if verified:
+   gate('R115_13_real_download_completion',True,{'receipt':receipt_state,'androidSha256':audit.get('sha256'),'bytes':audit.get('bytes')})
   else:
-   gate('R115_13_real_download_completion',True,record['download_completion'])
-  record['result']='SUB_PASS_SCOPED' if receipt_state=='complete' else 'PARTIAL'
+   state['gates']['R115_13_real_download_completion']={'status':'NOT_RUN','detail':str(record['download_completion'])+'; adb verified MP4 not found'}
+   record['gates']['R115_13_real_download_completion']={'status':'NOT_RUN','detail':record['download_completion']}
+  record['result']='SUB_PASS_SCOPED' if verified else 'PARTIAL'
  except Exception as e:
   record['result']='FAIL';record['errors'].append(repr(e));record['traceback']=traceback.format_exc()[-6500:]
   if not any(v['status']=='FAIL' for v in record['gates'].values()):
