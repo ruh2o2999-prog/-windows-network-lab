@@ -52,10 +52,10 @@ jobs:
              -p "$ANDROID_AVD_HOME/TT935_API25_TrueARM32.avd" \
              -d "pixel_2" -f > out/tt935-arm32-guest/avd_create.log 2>&1 < /dev/null
           cat >"$ANDROID_AVD_HOME/TT935_API25_TrueARM32.ini" <<END_AVD
-avd.ini.encoding=UTF-8
-path=$ANDROID_AVD_HOME/TT935_API25_TrueARM32.avd
-target=android-25
-END_AVD
+          avd.ini.encoding=UTF-8
+          path=$ANDROID_AVD_HOME/TT935_API25_TrueARM32.avd
+          target=android-25
+          END_AVD
           "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" list avd >out/tt935-arm32-guest/avd_list.txt 2>&1 || true
           "$ANDROID_HOME/emulator/emulator" -list-avds >out/tt935-arm32-guest/emulator_avds.txt 2>&1 || true
           ls -lah "$ANDROID_AVD_HOME" > out/tt935-arm32-guest/avd_dir.txt
