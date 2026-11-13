@@ -24,7 +24,7 @@ jobs:
           mkdir -p out/tt935-arm32-legacy
           sudo apt-get update -qq >out/tt935-arm32-legacy/apt.log 2>&1
           sudo apt-get install -y -qq libpulse0 libnss3 libxcb1 libx11-6 libgl1 libglu1-mesa libxkbcommon0 >>out/tt935-arm32-legacy/apt.log 2>&1
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "system-images;android-25;google_apis;armeabi-v7a" >out/tt935-arm32-legacy/sdk_install.log 2>&1
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "emulator" "system-images;android-25;google_apis;armeabi-v7a" >out/tt935-arm32-legacy/sdk_install.log 2>&1
           curl -fLS --retry 3 --max-time 240 \
             "https://dl.google.com/android/repository/emulator-linux-5395263.zip" \
             -o /tmp/tt935-emulator-28.0.25.zip
