@@ -1,0 +1,54 @@
+name: Craft Anything legacy v0.5.0 Linux CLI recovery
+on:
+  push:
+    branches: [android-reverse-toolchain-v1]
+    paths:
+      - '.github/workflows/craft-anything-v050-recovery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  download-and-test-v050:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact historical v0.5.0 official Linux release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/craft_anything_v050/tools out/craft_anything_v050/evidence /tmp/craft_anything_v050
+          ARCHIVE=out/craft_anything_v050/tools/craft-anything-0.5.0-linux-x86_64.tar.gz
+          curl -fL --retry 4 --retry-all-errors --connect-timeout 15 --max-time 210 \
+             https://github.com/storytold/craft-anything/releases/download/v0.5.0/craft-anything-0.5.0-linux-x86_64.tar.gz \
+             -o "$ARCHIVE"
+          test "$(stat -c %s "$ARCHIVE")" = 68980627
+          sha256sum "$ARCHIVE" | tee out/craft_anything_v050/evidence/release_sha256.txt
+          tar -tzf "$ARCHIVE" >out/craft_anything_v050/evidence/tar_members.txt
+          tar -xzf "$ARCHIVE" -C /tmp/craft_anything_v050
+          find /tmp/craft_anything_v050 -maxdepth 6 -type f -name '*craft-anything*' >out/craft_anything_v050/evidence/binary_candidates.txt
+          CLI=$(find /tmp/craft_anything_v050 -type f -name 'craft-anything-cli' | head -1)
+          test -n "$CLI" || { echo 'ERROR CLI absent'; find /tmp/craft_anything_v050 -maxdepth 5 -type f | head -50; exit 6; }
+          chmod +x "$CLI"
+          echo "$CLI" >out/craft_anything_v050/evidence/ci_cli_path.txt
+          (timeout 30s "$CLI" --version >out/craft_anything_v050/evidence/version.log 2>&1 && echo VERSION_PASS) || { cat out/craft_anything_v050/evidence/version.log; exit 7; }
+          (timeout 50s "$CLI" doctor >out/craft_anything_v050/evidence/doctor.log 2>&1 && echo DOCTOR_PASS) || echo 'Doctor may flag optional tools; preserve its actual output and exit code'
+          (timeout 30s "$CLI" mcp --help >out/craft_anything_v050/evidence/mcp_help.log 2>&1 && echo MCP_HELP_PASS) || true
+          sed -n '1,40p' out/craft_anything_v050/evidence/version.log
+          sed -n '1,35p' out/craft_anything_v050/evidence/doctor.log
+          cat >out/craft_anything_v050/README.md <<'EOF'
+          Craft Anything v0.5.0 official Linux x86_64 release, restored via GitHub Actions.
+          Original release: https://github.com/storytold/craft-anything/releases/tag/v0.5.0
+          SHA-256 and actual CLI --version / doctor / mcp --help logs are in evidence/.
+          Restore offline: mkdir -p craft-anything-v0.5.0 && tar -xzf tools/craft-anything-0.5.0-linux-x86_64.tar.gz -C craft-anything-v0.5.0
+          Then locate craft-anything-cli executable and run --version, doctor.
+          This tool is not equivalent to JADX or Apktool; Android decompilation tools are in separate offline bundle.
+          EOF
+      - name: Upload original distribution and actual verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: craft-anything-v050-offline-restored
+          path: out/craft_anything_v050/
+          retention-days: 28
+          if-no-files-found: warn
