@@ -59,28 +59,52 @@ def execute(run,snapshot,state,out,fixture_url,type_internal_url,native_extensio
    except Exception:pass
    time.sleep(1)
   gate('R115_06_real_page_Main_world_MSE_and_sourcebuffer',page and page.get('info',{}).get('status')=='READY' and page.get('pageHook') and page.get('diagHook') and str(page['info'].get('blobUrl','')).startswith('blob:http://127.0.0.1:18765/'),page)
-  # Original panel JavaScript is closure-scoped. CDP MUST use exposed native DOM
-  # controls, not inject calls to private functions (R115 first-run test error).
-  # R115 HF2: navigate the current genuine extension panel itself; HF1
-  # proved chrome.tabs.update() did not change its target URL on Kiwi Android.
-  navigation=cdp_eval(ws,'''(()=>{
-    const to=location.origin+'/panel.html?tabId='+'''+str(tab_id)+''';
-    setTimeout(()=>location.assign(to),250);
-    return {target:to,method:'panel_self_location_assign'};
-  })()''',timeout=30)
-  record['panel_navigation']=navigation
-  time.sleep(5)
-  # Verify the actual page selected by the original UI instead of relying
-  # only on the browser's target URL, which can be stale.
-  found=[t for t in targets() if '/panel.html?tabId='+str(tab_id) in (t.get('url') or '') and t.get('webSocketDebuggerUrl')]
-  if found:
-   ws=found[0]['webSocketDebuggerUrl']
-  else:
-   newpanel=probe_cdp(run,out);ws=newpanel.get('_websocket_url')
-  selected=cdp_eval(ws,'''({href:location.href,siteUrl:document.getElementById('site-url')?.textContent||'',loaded:document.readyState,site:document.getElementById('site')?.textContent||''})''')
-  record['panel_target_after_reload']=selected
-  gate('R115_07_panel_original_tabId_route_reinitialized',bool(ws) and selected.get('siteUrl')==URL,
-      {'tabId':tab_id,'selected':selected,'planned':navigation})
+  # HF3: official Chromium tabs API + actual original #choose-tab UI.
+  # Public pattern: tabs.get -> tabs.update(active) -> windows.update(focused)
+  # -> tabs.query -> existing panel button. Never call private panel.js closures.
+  # LastAccessed is diagnostic only; the displayed original #site-url is the gate.
+  selection=cdp_eval(ws,'''(async()=>{
+    const wanted='''+str(tab_id)+''', expected='''+json.dumps(URL)+''';
+    if(!location.href.startsWith('chrome-extension://'))throw Error('Not actual installed panel');
+    const ask=(api,args)=>new Promise((resolve,reject)=>api(...args,(v)=>{
+      const e=chrome.runtime.lastError;e?reject(Error(e.message)):resolve(v);
+    }));
+    const original=await ask(chrome.tabs.get.bind(chrome.tabs),[wanted]);
+    if(original.url!==expected)throw Error('Target URL differs: '+original.url);
+    let activated=null,focusError=null;
+    try{activated=await ask(chrome.tabs.update.bind(chrome.tabs),[wanted,{active:true}]);}
+    catch(e){focusError='tabs.update: '+String(e.message||e);}
+    if(Number.isInteger(original.windowId)&&original.windowId>=0&&chrome.windows?.update){
+      try{await ask(chrome.windows.update.bind(chrome.windows),[original.windowId,{focused:true}]);}
+      catch(e){focusError=(focusError?focusError+'; ':'')+'windows.update: '+String(e.message||e);}
+    }
+    const ts=await ask(chrome.tabs.query.bind(chrome.tabs),[{}]);
+    const pages=ts.filter(t=>/^https?:\\/\\//i.test(t.url||''))
+      .sort((a,b)=>Number(b.lastAccessed||0)-Number(a.lastAccessed||0));
+    const active=ts.filter(t=>t.active&&/^https?:\\/\\//i.test(t.url||''));
+    const button=document.getElementById('choose-tab');
+    if(!button||button.disabled)throw Error('Original choose-tab not available');
+    button.click();
+    return {requestedId:wanted,originalId:original.id,activatedId:activated?.id||null,
+      focusError,chosenByExistingLastAccessed:pages[0]&&{id:pages[0].id,url:pages[0].url},
+      active:active.map(t=>({id:t.id,url:t.url,windowId:t.windowId})),
+      candidates:pages.slice(0,8).map(t=>({id:t.id,url:t.url,lastAccessed:t.lastAccessed})),
+      originalButtonClicked:true,panelHref:location.href};
+  })()''',timeout=35)
+  record['panel_selection']=selection
+  rendered=None;observations=[]
+  for attempt in range(18):
+   time.sleep(1)
+   rendered=cdp_eval(ws,'''({siteUrl:document.getElementById('site-url')?.textContent||'',
+     site:document.getElementById('site')?.textContent||'',
+     href:location.href,status:document.getElementById('status')?.textContent||''})''',timeout=20)
+   observations.append(rendered)
+   if rendered.get('siteUrl')==URL:break
+  record['panel_selection_observations']=observations
+  gate('R115_07_panel_original_tabId_route_reinitialized',
+      selection.get('originalId')==tab_id and selection.get('originalButtonClicked') and
+      rendered is not None and rendered.get('siteUrl')==URL,
+      {'tabId':tab_id,'selected':rendered,'selection':selection,'attempts':len(observations)})
   ui=None
   for n in range(15):
    ui=cdp_eval(ws,'''(()=>{
