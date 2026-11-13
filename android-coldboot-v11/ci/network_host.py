@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Separate host DNS/HTTPS, TLS and proxy failure classification; no secrets in artifact."""
-import datetime,json,os,pathlib,socket,ssl,urllib.request,urllib.error,time
+import datetime,json,os,pathlib,socket,ssl,urllib.request,urllib.error,urllib.parse,time
 urls=["https://api.github.com/","https://dl.google.com/android/repository/repository2-1.xml","https://repo.maven.apache.org/maven2/","https://example.com/"]
 r={"schema":"NET_HOST_v11","timestamp_utc":datetime.datetime.now(datetime.timezone.utc).isoformat(),
    "checks":[],"proxy_env_present":[n for n in ("HTTP_PROXY","HTTPS_PROXY","ALL_PROXY") if os.getenv(n)]}
 for url in urls:
- host=urllib.request.urlparse(url).hostname
+ host=urllib.parse.urlparse(url).hostname
  row={"url":url,"dns":"NOT_RUN","https":"NOT_RUN"}
  try:
   addrs=socket.getaddrinfo(host,443,type=socket.SOCK_STREAM)
