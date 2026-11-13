@@ -1,4 +1,4 @@
-name: TT935 V0.4.1 real APK private encrypted AVD
+name: TT935 V0.4.1 API28 x86 control emulator with private encrypted APK
 on:
   push:
     branches: [tt935-v041-secure-emulator]
@@ -107,9 +107,9 @@ jobs:
       - name: Actually install and run V0.4.1 APK in Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: 28
           target: google_apis
-          arch: x86_64
+          arch: x86
           profile: pixel_2
           ram-size: 4096M
           heap-size: 512M
@@ -125,7 +125,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tt935-v041-private-android30-real-ui
+          name: tt935-v041-private-android28-real-ui
           path: out/tt935-v041-real-avd/
           if-no-files-found: warn
           retention-days: 28
