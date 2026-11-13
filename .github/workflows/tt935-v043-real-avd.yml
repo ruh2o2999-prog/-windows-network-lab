@@ -1,4 +1,4 @@
-name: TT935 V0.4.3 isolated targetSDK34 Android14 genuine APK
+name: TT935 V0.4.3 targetSDK34 Android14 actual APK install regression
 on:
   push:
     branches: [tt935-v043-compat-avd]
