@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [30, 35]
+        api: [36]
     steps:
       - uses: actions/checkout@v4
       - name: Confirm public-only test files
