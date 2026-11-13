@@ -93,10 +93,11 @@ def build(publisher,source,output,dir_target,remove_qa,report,timeout=185):
         p=subprocess.Popen([str(publisher)])
         main=None
         while time.monotonic()-started<25:
-            main=next((h for h,c,t in pid_windows(p.pid) if c=='WorkPlatformPublisher'),None)
+            main=next((h for h,c,t in pid_windows(p.pid)
+                       if c=='WorkPlatformPublisher' and all(u.GetDlgItem(h,k) for k in (103,105,106,107,112,115,119,125))),None)
             if main:break
             time.sleep(.25)
-        if not main:raise RuntimeError('NO_NATIVE_PUBLISHER_WINDOW')
+        if not main:raise RuntimeError('NO_NATIVE_PUBLISHER_FULLY_INITIALIZED_WINDOW')
         r['ui_main_found']=True
         setctrl(main,103,str(source));setctrl(main,105,'P050_CI_RealInput')
         setctrl(main,121,'P050_CI_RealInput');setctrl(main,106,'2.11.2.10-CI')
@@ -195,7 +196,7 @@ def install(exe,report,expected_count,timeout=145):
             if p.poll() is not None:
                 r['exit_code']=p.returncode;break
             windows=pid_windows(p.pid)
-            main=next((h for h,c,t in windows if c=='WorkPlatformInstaller'),None)
+            main=next((h for h,c,t in windows if c=='WorkPlatformInstaller' and u.GetDlgItem(h,203) and u.GetDlgItem(h,205)),None)
             if main:
                 r['main_window_seen']=True
                 if not r['install_clicked']:
