@@ -72,7 +72,7 @@ jobs:
           from cryptography.hazmat.primitives.ciphers.aead import AESGCM
           m=json.loads(pathlib.Path('/tmp/tt935-transport.json').read_text())
           trusted_sha='de6fb9acb39636d64ff9960f1f1e2d815e27a65d5a6ba28e2ca8f7e66232ed31'
-          trusted_run=f'tt935_v041_run_{os.environ["GITHUB_RUN_ID"]}'
+          trusted_run=f'tt935_v045_run_{os.environ["GITHUB_RUN_ID"]}'
           assert m['schema']=='TT935-CI-ENCRYPTED-APKV1'
           assert m['session']==trusted_run and m['source_sha256']==trusted_sha
           url=m['encrypted_blob_url']
@@ -125,7 +125,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tt935-v045-private-android28-real-ui
+          name: tt935-v045-private-android30-real-ui
           path: out/tt935-v045-real-avd/
           if-no-files-found: warn
           retention-days: 28
