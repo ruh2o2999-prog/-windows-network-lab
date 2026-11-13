@@ -1,0 +1,28 @@
+name: V813 TEST6 native Windows real GUI and click persistence
+on:
+  push:
+    branches: [research/v813-test6-windows-gui]
+    paths: ['.github/workflows/v813-test6-windows-gui.yml','test6/windows_gui_probe.ps1']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-native-real-gui:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Windows actual WinForms, button click, file save and re-open evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & ./test6/windows_gui_probe.ps1 -StatePath "$env:RUNNER_TEMP\test6-gui-state.txt" -ReportPath "$env:RUNNER_TEMP\test6-win-gui-report.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload real native Windows run result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v813-test6-windows-native-gui-report
+          path: ${{ runner.temp }}/test6-win-gui-report.json
+          if-no-files-found: warn
+          retention-days: 7
