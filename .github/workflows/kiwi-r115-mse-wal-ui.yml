@@ -1,4 +1,4 @@
-name: Kiwi R115 HF4 real Android active-tab-first MSE WAL end-to-end
+name: Kiwi R115 HF4 independently gated Android MSE WAV OPFS
 on:
   push:
     branches: [kiwi-r115-mse-wal-ui]
@@ -35,7 +35,19 @@ jobs:
             "                from r115_native_mse_endtoend import execute as r115_execute",
             "                r115_execute(run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)"])
           assert s.count(needle)==1,'R115 original runner seam changed; refuse ungrounded patch'
-          p.write_text(s.replace(needle,needle+'\n'+extra),encoding='utf8')
+          patched=s.replace(needle,needle+'\n'+extra)
+          # Keep every R107/R109 failure untouched, but run the independently
+          # authorized R115 MSE gate even if earlier strict CDP event parity fails.
+          # The original if branch already executes R115 once after R112/R114;
+          # this addition only covers the existing not-ready else branch.
+          fallback="                    'status':'NOT_RUN','detail':'Real original R109 history/CDP task verification not complete'}"
+          assert patched.count(fallback)==1,'R115 fallback seam changed; fail closed'
+          independent="\n".join([
+            "                sys.path.insert(0,str(Path('kiwi-r115-lab').absolute()))",
+            "                from r115_native_mse_endtoend import execute as r115_execute",
+            "                r115_execute(run,snapshot,state,OUT,fixture_url,type_internal_url,find_extensions_via_kiwi_menu)"])
+          patched=patched.replace(fallback,fallback+'\n'+independent)
+          p.write_text(patched,encoding='utf8')
           print('R115_RUNNER_SEAM_PATCH_PASS')
           PY_R115
       - name: Publish one-time receiver certificate
