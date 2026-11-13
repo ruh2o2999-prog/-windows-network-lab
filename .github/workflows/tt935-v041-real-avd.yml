@@ -1,0 +1,131 @@
+name: TT935 V0.4.1 real APK private encrypted AVD
+on:
+  push:
+    branches: [tt935-v041-secure-emulator]
+    paths:
+      - '.github/workflows/tt935-v041-real-avd.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  isolated-private-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned cryptography
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q 'cryptography==46.0.4'
+          python3 -m py_compile tt935-private-avd/test_real_apk.py
+      - name: Generate ephemeral RSA-3072 and publish ONLY public key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tt935-private-keys
+          chmod 700 /tmp/tt935-private-keys
+          python3 - <<'PY'
+          from cryptography.hazmat.primitives.asymmetric import rsa
+          from cryptography.hazmat.primitives import serialization
+          from pathlib import Path
+          r=Path('/tmp/tt935-private-keys')
+          k=rsa.generate_private_key(public_exponent=65537,key_size=3072)
+          (r/'receiver-private.pem').write_bytes(k.private_bytes(
+             serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+          (r/'receiver-private.pem').chmod(0o600)
+          (r/'receiver-public.pem').write_bytes(k.public_key().public_bytes(
+             serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo))
+          PY
+          EXCHANGE="exchange/tt935-v041-run-$GITHUB_RUN_ID"
+          mkdir -p "$EXCHANGE"
+          cp /tmp/tt935-private-keys/receiver-public.pem "$EXCHANGE/receiver-public.pem"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EXCHANGE/receiver-public.pem"
+          git commit -m "ci(tt935): publish ephemeral public ONLY key for run $GITHUB_RUN_ID"
+          git push origin HEAD:tt935-v041-secure-emulator
+          echo "TT935_PUBKEY_READY_PATH=$EXCHANGE/receiver-public.pem"
+      - name: Receive encrypted transport and decrypt in ephemeral runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXCHANGE="exchange/tt935-v041-run-$GITHUB_RUN_ID"
+          export EXCHANGE GITHUB_RUN_ID
+          for i in $(seq 1 170); do
+            git fetch -q origin '+refs/heads/tt935-v041-secure-emulator:refs/remotes/origin/tt935-v041-secure-emulator'
+            if git show "origin/tt935-v041-secure-emulator:$EXCHANGE/encrypted_transport.json" >/tmp/tt935-transport.json 2>/dev/null; then
+              break
+            fi
+            sleep 4
+          done
+          test -s /tmp/tt935-transport.json || { echo 'ENCRYPTED_PACKAGE_DELIVERY_TIMEOUT'; exit 23; }
+          python3 - <<'PY'
+          import base64,hashlib,json,pathlib,subprocess,os,urllib.parse,zipfile
+          from io import BytesIO
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric import padding
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          m=json.loads(pathlib.Path('/tmp/tt935-transport.json').read_text())
+          trusted_sha='955979742949e28a8cfd51756c9d92782c30139b1a8ddfbe8aa87cdd72fd2860'
+          trusted_run=f'tt935_v041_run_{os.environ["GITHUB_RUN_ID"]}'
+          assert m['schema']=='TT935-CI-ENCRYPTED-APKV1'
+          assert m['session']==trusted_run and m['source_sha256']==trusted_sha
+          url=m['encrypted_blob_url']
+          u=urllib.parse.urlparse(url)
+          assert u.scheme=='https' and u.hostname=='sdmntprcentralus.oaiusercontent.com'
+          # Download ciphertext only. Never echo signed URL or key.
+          subprocess.run(['curl','-fLSs','--retry','3','--retry-all-errors','--connect-timeout','20',
+            '--max-time','240',url,'-o','/tmp/tt935-v041-cipher.bin'],check=True)
+          cipher=pathlib.Path('/tmp/tt935-v041-cipher.bin').read_bytes()
+          assert len(cipher)==m['cipher_bytes'] and hashlib.sha256(cipher).hexdigest()==m['cipher_sha256']
+          priv=serialization.load_pem_private_key(
+            pathlib.Path('/tmp/tt935-private-keys/receiver-private.pem').read_bytes(),password=None)
+          key=priv.decrypt(base64.b64decode(m['keywrap_b64'],validate=True),
+            padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=None))
+          nonce=base64.b64decode(m['nonce_b64'],validate=True)
+          aad=json.dumps({'schema':m['schema'],'session':m['session'],
+            'source_sha256':trusted_sha},sort_keys=True,separators=(',',':')).encode()
+          apk=AESGCM(key).decrypt(nonce,cipher,aad)
+          assert len(apk)==m['source_bytes'] and hashlib.sha256(apk).hexdigest()==trusted_sha
+          with zipfile.ZipFile(BytesIO(apk)) as z:
+            assert z.testzip() is None and 'classes10.dex' in z.namelist()
+          pathlib.Path('/tmp/tt935-v041-private.apk').write_bytes(apk)
+          pathlib.Path('/tmp/tt935-v041-private.apk').chmod(0o600)
+          print('ENCRYPTED_APK_RESTORED_TEMPORARILY: sha256 verified, bytes=',len(apk))
+          PY
+          rm -f /tmp/tt935-v041-cipher.bin /tmp/tt935-transport.json
+      - name: Enable KVM
+        run: |
+          set -euo pipefail
+          sudo chmod 666 /dev/kvm
+          ls -l /dev/kvm
+      - name: Actually install and run V0.4.1 APK in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 tt935-private-avd/test_real_apk.py
+      - name: Purge ephemeral private key and APK plaintext
+        if: always()
+        run: |
+          rm -f /tmp/tt935-v041-private.apk /tmp/tt935-v041-cipher.bin /tmp/tt935-transport.json /tmp/tt935-private-keys/receiver-private.pem
+      - name: Upload filtered evidence only, never source APK or secret
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-v041-private-android30-real-ui
+          path: out/tt935-v041-real-avd/
+          if-no-files-found: warn
+          retention-days: 28
