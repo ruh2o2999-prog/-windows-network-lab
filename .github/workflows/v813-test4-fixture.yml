@@ -1,0 +1,50 @@
+name: V813 TEST4 Android Kiwi actual onboarding and network fixture
+on:
+  push:
+    branches: [research/v813-test4-android-fixture]
+    paths:
+      - .github/workflows/v813-test4-fixture.yml
+      - test4/android_http_fixture.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  genuine-browser-network:
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 36]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real official Kiwi APK and Python scripts
+        run: |
+          python3 -m py_compile test4/android_http_fixture.py kiwi-android-lab/download_kiwi.py
+          python3 kiwi-android-lab/download_kiwi.py
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Android ${{ matrix.api }} actual onboarding and localhost HTTP fixture
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          TEST4_API: ${{ matrix.api }}
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 test4/android_http_fixture.py
+      - name: Upload raw UI and server logs regardless of outcome
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v813-test4-http-fixture-api${{ matrix.api }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 7
