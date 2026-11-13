@@ -1,0 +1,38 @@
+name: P025 encrypted APK relay — ciphertext only
+on:
+  push:
+    branches: [clashmeta-p025-sealed-transfer]
+    paths:
+      - '.github/workflows/clashmeta-p025-sealed-transfer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  transfer-encrypted-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download ONLY RSA-OAEP plus AES-256-GCM encrypted P020
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --location --retry 2 --retry-delay 4 --max-time 250 --silent --show-error \
+            "https://p012-python-contract-build-test.up.railway.app/encrypted-p020" \
+            -o p020-sealed.bin
+      - name: Verify sealed-only format and expected length
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('p020-sealed.bin')
+          assert p.stat().st_size==46619924, "ENCRYPTED_LENGTH_MISMATCH"
+          assert p.read_bytes()[:8]==b'CMFAENC1', "NOT_ENCRYPTED"
+          print('P025_PUBLIC_RUNNER_SAW_CIPHERTEXT_ONLY',p.stat().st_size)
+          PY
+      - name: Save only encrypted file, no private key and no plaintext
+        uses: actions/upload-artifact@v4
+        with:
+          name: p025-cmfa-p020-encrypted-aesgcm
+          path: p020-sealed.bin
+          retention-days: 2
+          if-no-files-found: error
