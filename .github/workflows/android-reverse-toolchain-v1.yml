@@ -1,0 +1,49 @@
+name: Android reversing tools offline restore and real smoke
+on:
+  push:
+    branches: [android-reverse-toolchain-v1]
+    paths:
+      - '.github/workflows/android-reverse-toolchain-v1.yml'
+      - 'android-reverse-toolchain/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fetch-and-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Fetch pinned official upstream releases and execute real reverse-engineering smoke tests
+        run: |
+          set -euo pipefail
+          python3 -m py_compile android-reverse-toolchain/build_bundle.py
+          python3 android-reverse-toolchain/build_bundle.py
+      - name: Prepare offline bundle (no proprietary APK or analysis output)
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p out/android_reverse_offline_v1
+          cp android-reverse-toolchain/install-and-verify.sh out/android_reverse_offline_v1/install-and-verify.sh
+          cat >out/android_reverse_offline_v1/README.md <<'EOF'
+          # Android 静态逆向工具链 V1.0（离线包）
+          源工具：JADX 1.5.6，Apktool 3.0.3，Baksmali / Smali 3.0.10。
+          Java 17/21 与 unzip 必需；离线恢复执行：bash install-and-verify.sh [APK路径]。
+          安装后可通过 jadx/bin/jadx --version、java -jar tools/apktool_3.0.3.jar --version 检验。
+          --no-src 仅解 AndroidManifest.xml 和资源；Baksmali 可解 DEX 生成 Smali；JADX 生成 Java 近似源码。
+          本压缩包仅包含官方公开工具、工具来源哈希和运行证据；没有包含今日头条 APK，也没有包含签名密钥。
+          历史 Craft Anything v0.5.0 是独立工具，本包不冒充其恢复结果。
+          EOF
+          du -sh out/android_reverse_offline_v1 || true
+      - name: Upload tool binaries and actual test evidence to reusable artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reverse-toolchain-offline-v1
+          path: out/android_reverse_offline_v1/
+          retention-days: 28
+          if-no-files-found: warn
