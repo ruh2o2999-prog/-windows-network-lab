@@ -132,6 +132,33 @@ def run_native_publisher(publisher,source,output,report,seconds=165):
         report.parent.mkdir(parents=True,exist_ok=True)
         report.write_text(json.dumps(r,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 
+def sanitized_publisher_diagnostics(exe):
+    import re
+    logs=sorted(exe.parent.glob('错误日志_*.txt'))
+    if not logs:return {'log_found':False}
+    txt=logs[-1].read_text(encoding='utf-16',errors='replace')
+    probes={
+        'entered_p055_native_stage':'P055离线VBA工程真实源码构建',
+        'p055_engine_missing':'P055发布器内嵌构建引擎不存在',
+        'p055_engine_hash_failure':'P055内嵌引擎SHA-256不一致',
+        'p055_engine_extract_failure':'P055内嵌引擎解压失败',
+        'p055_python_missing':'未找到可用python.exe',
+        'p055_python_error':'P055_OFFLINE_BUILD_FAILED',
+        'p055_python_step_error':'P055_OFFLINE_STEP_FAILED',
+        'p055_python_input_error':'P055_OFFLINE_INVALID_MANIFEST',
+        'p055_contract_stage':'构建后 build.mode',
+        'p055_unverified_release_declined':'用户拒绝将尚未通过真实Excel业务验收',
+        'existing_excel_com_stage':'受控 Excel 工程构建（无需 PowerShell）',
+    }
+    hits={code:needle in txt for code,needle in probes.items()}
+    # Names and private paths are never exported; only controlled error types.
+    error_tags=sorted(set(re.findall(r'P055_OFFLINE_[A-Z0-9_]{4,90}',txt)))
+    exception_kinds=sorted(set(re.findall(r'(?<![A-Za-z])(?:FileNotFoundError|ModuleNotFoundError|RuntimeError|ValueError|KeyError|PermissionError|AssertionError|TypeError|UnicodeDecodeError|OSError|BadZipFile)(?=:)',txt)))
+    # UTF-16 test log SHA proves the exact redacted classification has a stable source.
+    return {'log_found':True,'last_log_sha256':hashlib.sha256(logs[-1].read_bytes()).hexdigest(),
+            'classification':hits,'error_tags':error_tags[:12],
+            'exception_kinds':exception_kinds,'log_bytes':logs[-1].stat().st_size}
+
 def main():
     a=argparse.ArgumentParser()
     a.add_argument('--input',required=True,type=Path)
@@ -157,6 +184,7 @@ def main():
     (out/'source_preflight.json').write_text(json.dumps(status,indent=2),encoding='utf-8')
     ensure('WSH_PREFLIGHT_REAL_SOURCE',status['wsh_preflight_exit_code']==0 and status['wsh_preflight_marker_seen'])
     r=run_native_publisher(publisher,source,out/'P055_Install.exe',out/'publisher_mode3.json')
+    (out/'p055_native_error_fingerprint.json').write_text(json.dumps(sanitized_publisher_diagnostics(publisher),indent=2),encoding='utf-8')
     result={'stage':'P0-51-native-source-to-XLSM','source_preflight_passed':True,
             'mode_three_selected':r['mode_selected']==3,'full_verification_kept':r['full_verification_checkbox_checked'],
             'build_error_modal_seen':r.get('build_error_modal_seen',False),
