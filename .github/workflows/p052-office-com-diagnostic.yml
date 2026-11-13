@@ -1,0 +1,47 @@
+name: P052 Office COM exact HRESULT diagnostic (nonprivate)
+on:
+  push:
+    branches: [publisher-p052-sourcebuilder-office-diagnostic-20261114]
+    paths:
+      - '.github/workflows/p052-office-com-diagnostic.yml'
+      - 'ci/p052_excel_com_probe.vbs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  excel-com-environment:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute exact native cscript Excel COM activation test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force 'out' | Out-Null
+          $raw = & "$env:SystemRoot\System32\cscript.exe" //nologo ci/p052_excel_com_probe.vbs 2>&1
+          $code=$LASTEXITCODE
+          $lines=@($raw | ForEach-Object {[string]$_})
+          $status=@($lines | Where-Object {$_ -match '^P052_EXCEL_COM='} | Select-Object -First 1)
+          if ($status.Count -ne 1){throw 'MISSING_EXCEL_DIAG_STATUS'}
+          $result=[ordered]@{
+            stage='P052-REAL-WINDOWS-EXCEL-COM-PREREQUISITE'
+            native_windows='windows-2022'
+            office_runtime_activated=($code -eq 0)
+            cscript_exit_code=$code
+            diagnostic_lines=@($lines | Where-Object {$_ -match '^P052_'})
+            workbook_constructed=$false
+            userform_runtime_tested=$false
+            formal_pub_items_closed=0
+          }
+          $result | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 'out/p052_excel_com_environment.json'
+          Get-Content 'out/p052_excel_com_environment.json'
+          if($code -ne 0 -and $code -ne 13){throw 'EXCEL_COM_UNEXPECTED_PROBE_RESULT'}
+      - name: Upload sanitized nonprivate COM evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p052-excel-com-hresult-native
+          path: out/p052_excel_com_environment.json
+          if-no-files-found: warn
+          retention-days: 30
