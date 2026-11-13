@@ -5,7 +5,7 @@ Do not sign in with an account or interact with user data.
 """
 import datetime,hashlib,json,pathlib,re,subprocess,time,xml.etree.ElementTree as ET
 APK=pathlib.Path("/tmp/tt935-v043-private.apk")
-OUT=pathlib.Path("out/tt935-v041-real-avd");OUT.mkdir(parents=True,exist_ok=True)
+OUT=pathlib.Path("out/tt935-v043-real-avd");OUT.mkdir(parents=True,exist_ok=True)
 PKG="com.ss.android.article.news"
 R={"tested_apk":"REAL TT935 V0.4.3 signed APK (private encrypted transport)",
    "sha256":hashlib.sha256(APK.read_bytes()).hexdigest(),"android":{},"steps":{},"images":[]}
@@ -105,3 +105,7 @@ finally:
  R["final_result"]="PARTIAL: installation/screenshot data available; TT10/TT12 only pass after visual review"
  (OUT/"result.json").write_text(json.dumps(R,ensure_ascii=False,indent=2))
  print("TT935_REAL_AVD_RESULT="+json.dumps({k:v for k,v in R.items() if k not in ["images"]},ensure_ascii=False))
+ if not R["steps"].get("TT05-REAL-INSTALL",{}).get("pass",False):
+  raise SystemExit(8) # CI must fail if the actual APK failed installation
+ if not R["steps"].get("TT05-LAUNCH-INTENT",{}).get("pass",False):
+  raise SystemExit(9) # installation alone is NOT an app launch pass
