@@ -1,0 +1,37 @@
+name: P025 full P020 source relay — encrypted only
+on:
+  push:
+    branches: [clashmeta-p025-sealed-transfer]
+    paths:
+      - '.github/workflows/clashmeta-p025-source-encrypted.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sealed-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download encrypted source snapshot only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl -fLsS --retry 2 --retry-delay 3 --max-time 180 \
+            "https://p012-python-contract-build-test.up.railway.app/encrypted-source" \
+            -o p020-source-sealed.bin
+      - name: Check sealed header and bounded payload size
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('p020-source-sealed.bin')
+          assert 2000 < p.stat().st_size < 2000000, 'sealed source size'
+          with p.open('rb') as f: assert f.read(8)==b'CMFAENC1'
+          print('P025_SOURCE_PUBLIC_RUNNER_ONLY_CIPHERTEXT',p.stat().st_size)
+          PY
+      - name: Upload only encrypted ZIP, no private key
+        uses: actions/upload-artifact@v4
+        with:
+          name: p025-cmfa-p020-source-sealed
+          path: p020-source-sealed.bin
+          retention-days: 2
+          if-no-files-found: error
