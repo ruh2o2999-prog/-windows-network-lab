@@ -1,9 +1,9 @@
-name: P050 original 34 to 28 Windows native publisher and installer (encrypted)
+name: P050 R10 forced process termination Windows native (encrypted)
 on:
   push:
     branches: [publisher-v211210-p050-r10-processkill-20261113]
     paths:
-      - '.github/workflows/pub-p050-original-native.yml'
+      - '.github/workflows/pub-p050-r10-native.yml'
       - 'ci/p050_native_20261113/**'
   workflow_dispatch:
 permissions:
