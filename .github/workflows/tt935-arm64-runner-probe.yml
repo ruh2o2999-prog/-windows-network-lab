@@ -1,0 +1,43 @@
+name: TT935 D01 native ARM64 runner hardware and binder probes
+on:
+  push:
+    branches: [tt935-arm32-native-guest-v01]
+    paths:
+      - '.github/workflows/tt935-arm64-runner-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-arm64-probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Check native hardware, nested KVM, binder availability and QEMU route
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/tt935-d01-arm64-host
+          uname -a | tee out/tt935-d01-arm64-host/uname.txt
+          cat /etc/os-release >out/tt935-d01-arm64-host/os_release.txt
+          lscpu >out/tt935-d01-arm64-host/lscpu.txt
+          id >out/tt935-d01-arm64-host/identity.txt
+          ls -l /dev/kvm /dev/binder* /dev/ashmem >out/tt935-d01-arm64-host/kernel_devices.txt 2>&1 || true
+          grep -E 'kvm|binder' /proc/modules >out/tt935-d01-arm64-host/kernel_modules.txt 2>&1 || true
+          grep -E 'CONFIG_KVM|CONFIG_ANDROID_BINDER' "/boot/config-$(uname -r)" >out/tt935-d01-arm64-host/kernel_config.txt 2>&1 || true
+          command -v qemu-system-aarch64 >out/tt935-d01-arm64-host/qemu_path.txt 2>&1 || true
+          python3 - <<'PY'
+          import os,pathlib,json,platform
+          d={"host_machine":platform.machine(),"kvm_accessible":os.path.exists('/dev/kvm') and os.access('/dev/kvm',os.R_OK|os.W_OK),
+           "kvm_exists":os.path.exists('/dev/kvm'),"binder_exists":os.path.exists('/dev/binder'),"binderfs_exists":os.path.exists('/dev/binderfs'),
+           "arm64_native":platform.machine() in ('aarch64','arm64')}
+          pathlib.Path('out/tt935-d01-arm64-host/probe.json').write_text(json.dumps(d,indent=2))
+          print('ARM64_HOST_PROBE='+json.dumps(d))
+          PY
+      - name: Upload hardware evidence even if unavailable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-D01-native-ARM64-runner-hardware-probe
+          path: out/tt935-d01-arm64-host/
+          retention-days: 28
+          if-no-files-found: warn
