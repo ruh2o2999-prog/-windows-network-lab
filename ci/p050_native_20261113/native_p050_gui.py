@@ -104,9 +104,13 @@ def build(publisher,source,output,dir_target,remove_qa,report,timeout=185):
                     if remove_qa and not bool(u.IsWindowEnabled(u.GetDlgItem(h,6702))):
                         raise RuntimeError('EXCLUSION_NOT_AVAILABLE_FOR_REAL_INPUT')
                     click_modal(h,id);r['qa_choice_sent']=True;seen.add(key);sent.append('qa_'+str(id));continue
+                # The resource preview sets its caption before creating child buttons.
+                # Do not misclassify the short initialization interval as unknown.
+                if title == '安装资源与依赖预览':
+                    continue
                 # Known message-box prompts. Response only to exact expected category.
-                if title in ('确认免附加校验打包','资源分类','发布包内容预览','生成完成'):
-                    if title=='确认免附加校验打包':id=6
+                if title in ('确认免附加校验打包','资源分类','发布包内容预览','自动识别结果','生成完成'):
+                    if title in ('确认免附加校验打包','自动识别结果'):id=6
                     elif title=='生成完成':id=1
                     elif title=='资源分类':id=6 if remove_qa else 7
                     else:id=6
