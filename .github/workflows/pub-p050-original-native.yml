@@ -78,7 +78,7 @@ jobs:
           & $openssl cms -decrypt -binary -inform DER -in $cipher -recip $cert -inkey $private -out $plain
           if($LASTEXITCODE){throw 'CMS_DECRYPT_FAILED'}
           $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($digest -ne '8e37090d21b51206a2801b0730ac5db597ddcca93bc96971426722ce465acba1'){
+          if($digest -ne '4fa121c1adbbab88d1966fdd0378bc3948261a52b94cddc07b42083bdf50fead'){
             throw 'ORIGINAL_P050_HANDOFF_SHA_MISMATCH'
           }
           $input=Join-Path $env:RUNNER_TEMP 'P050_Original_Input'
@@ -103,7 +103,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $root=Get-Content (Join-Path $env:RUNNER_TEMP 'p050_input_location.txt') -Raw
           $root=$root.Trim()
-          python -m py_compile ci/p050_native_20261113/native_p050_gui.py ci/p050_native_20261113/run_p050_native.py ci/p050_native_20261113/verify_payload.py
+          python -m py_compile ci/p050_native_20261113/native_p050_gui.py ci/p050_native_20261113/run_p050_native.py ci/p050_native_20261113/verify_payload.py ci/p050_native_20261113/native_wf_failure_contract.py
           if($LASTEXITCODE){throw 'NATIVE_SCRIPT_SYNTAX_FAILED'}
           python ci/p050_native_20261113/run_p050_native.py --input $root --report-dir out --verify-module ci/p050_native_20261113/verify_payload.py
           if($LASTEXITCODE){throw 'REAL_P050_34_TO_28_NATIVE_ACCEPTANCE_FAILED'}

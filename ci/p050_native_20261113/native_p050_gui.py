@@ -7,6 +7,7 @@ No Office automation is claimed. All dialogs are PID scoped and exact-allowliste
 import argparse, ctypes, hashlib, json, os, subprocess, time
 from pathlib import Path
 from ctypes import wintypes
+from native_wf_failure_contract import sanitized_failure, failure_token
 
 WM_COMMAND=0x111;WM_SETTEXT=0x000C;WM_GETTEXT=0x000D;BM_SETCHECK=0x00F1;BM_CLICK=0x00F5;BST_UNCHECKED=0
 CB_SETCURSEL=0x014E;CBN_SELCHANGE=1;ID_BUILD=112;ID_SOURCE_MODE=125
@@ -207,8 +208,17 @@ def install(exe,report,expected_count,timeout=145):
                     command(main,203)
             for h,c,title in windows:
                 if c=='#32770' and title:
-                    r['modal_failure']=True
-                    if title=='工作平台 · 安装失败':click_modal(h,1)
+                    if title=='工作平台 · 安装失败':
+                        r['modal_failure']=True
+                        # Status control 205 is written before the failure dialog.
+                        # Export only the numeric WF code, no paths or raw status.
+                        value=getctrl(main,205) if main else ''
+                        if not value:
+                            current=next((h for h,cl,_ in pid_windows(p.pid)
+                                          if cl=='WorkPlatformInstaller' and u.GetDlgItem(h,205)),None)
+                            if current:value=getctrl(current,205)
+                        r.update(sanitized_failure(value))
+                        raise RuntimeError('INSTALLER_NATIVE_WF_'+failure_token(value))
                     else:raise RuntimeError('UNKNOWN_INSTALL_DIALOG_'+hashlib.sha256(title.encode()).hexdigest()[:12])
             time.sleep(.28)
         if p.poll() is None:raise TimeoutError('NATIVE_INSTALLER_DID_NOT_EXIT')
