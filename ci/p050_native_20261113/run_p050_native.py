@@ -24,7 +24,13 @@ def main():
     target=root/'P050_App_Install';old=root/'P050_Original_34_Setup.exe';new=root/'P050_Excluded_28_Setup.exe'
     # This registry marker exercises only presence-dependent installer file handling.
     # It is NOT Microsoft Excel and is NEVER used to claim macro execution.
-    marker=root/'CI_OFFICE_PRESENCE_MARKER.exe';marker.write_bytes(b'CI TEST ONLY: NOT MICROSOFT EXCEL')
+    # CI-only file deployment environment: Office16 path supplies a deterministic
+    # version to the installer's strict Trusted Locations registry contract.
+    # This is NOT real Excel and does not test macros or Excel2013 compatibility.
+    fake_office_dir=root/'Office16'
+    fake_office_dir.mkdir(parents=True,exist_ok=True)
+    marker=fake_office_dir/'EXCEL.EXE';marker.write_bytes(b'CI TEST ONLY: NOT MICROSOFT EXCEL')
+    ensure('CI_OFFICE_VERSION_PATH',str(marker).lower().endswith('office16\\excel.exe'))
     key=r'Software\Microsoft\Windows\CurrentVersion\App Paths\excel.exe';reg=winreg.CreateKey(winreg.HKEY_CURRENT_USER,key)
     before=None
     try:
