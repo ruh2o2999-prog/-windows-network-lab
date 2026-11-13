@@ -1,0 +1,94 @@
+name: TT935 D01 native ARM32 guest research (API25 official image)
+on:
+  push:
+    branches: [tt935-arm32-native-guest-v01]
+    paths:
+      - ".github/workflows/tt935-arm32-native-guest-v01.yml"
+      - "tt935-arm32-guest/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  arm32-native-emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Inspect runner / official Android SDK available ARM32 guest images
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/tt935-arm32-guest
+          uname -a > out/tt935-arm32-guest/host.txt
+          cat /etc/os-release >> out/tt935-arm32-guest/host.txt
+          ls -l /dev/kvm >> out/tt935-arm32-guest/host.txt 2>&1 || true
+          echo "ANDROID_HOME=$ANDROID_HOME" >> out/tt935-arm32-guest/host.txt
+          SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDK" || { echo SDK_MISSING; exit 31; }
+          "$SDK" --list --include_obsolete > out/tt935-arm32-guest/sdk_all.txt 2>&1
+          grep -E 'system-images;android-(23|24|25|26|27|28);(google_apis|default);(armeabi-v7a|arm64-v8a)' out/tt935-arm32-guest/sdk_all.txt \
+             | tee out/tt935-arm32-guest/arm_images_available.txt || true
+          grep -q 'system-images;android-25;google_apis;armeabi-v7a' out/tt935-arm32-guest/arm_images_available.txt
+      - name: Install official actual ARMv7 Android 7.1 device image and emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          timeout 420 "$SDK" "platform-tools" "emulator" "system-images;android-25;google_apis;armeabi-v7a" \
+             >out/tt935-arm32-guest/sdk_install.log 2>&1 || { tail -100 out/tt935-arm32-guest/sdk_install.log; exit 32; }
+          test -f "$ANDROID_HOME/system-images/android-25/google_apis/armeabi-v7a/system.img"
+          "$ANDROID_HOME/emulator/emulator" -version >out/tt935-arm32-guest/emulator_version.txt 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd \
+             -n "TT935_API25_TrueARM32" \
+             -k "system-images;android-25;google_apis;armeabi-v7a" \
+             -d "pixel_2" -f > out/tt935-arm32-guest/avd_create.log 2>&1 < /dev/null
+      - name: Boot ARM32 guest via real QEMU TCG (no x86/ARM translator)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_I_WANT_MY_TCG=yes
+          export QT_QPA_PLATFORM=offscreen
+          "$ANDROID_HOME/emulator/emulator" -avd TT935_API25_TrueARM32 \
+             -no-window -noaudio -no-boot-anim -no-snapshot \
+             -gpu swiftshader_indirect -accel off -memory 3072 -cores 1 \
+             > out/tt935-arm32-guest/emulator_boot.log 2>&1 &
+          EMU_PID=$!
+          echo "$EMU_PID" > out/tt935-arm32-guest/emulator_pid.txt
+          echo "QEMU_TCG_ANDROID_ARM32_STARTED"
+          boot=0
+          for i in $(seq 1 50); do
+            sleep 12
+            "$ANDROID_HOME/platform-tools/adb" devices -l > out/tt935-arm32-guest/adb_devices_last.txt 2>&1 || true
+            code=$(timeout 8 "$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed 2>/dev/null || true)
+            echo "probe=$i boot=$code" >>out/tt935-arm32-guest/boot_progress.txt
+            if [ "$code" = 1 ]; then boot=1; break; fi
+            kill -0 "$EMU_PID" || { echo EMULATOR_PROCESS_EXITED; break; }
+          done
+          adb="$ANDROID_HOME/platform-tools/adb"
+          if [ "$boot" = 1 ]; then
+            "$adb" shell getprop ro.product.cpu.abilist >out/tt935-arm32-guest/guest_abi.txt
+            "$adb" shell getprop ro.build.version.release >out/tt935-arm32-guest/guest_release.txt
+            "$adb" shell getprop ro.dalvik.vm.native.bridge >out/tt935-arm32-guest/native_bridge.txt
+            "$adb" shell getprop init.svc.zygote >out/tt935-arm32-guest/zygote.txt
+            "$adb" shell dumpsys package >out/tt935-arm32-guest/package_service_snippet.txt
+            head -c 6000 out/tt935-arm32-guest/package_service_snippet.txt >out/tt935-arm32-guest/package_excerpt.txt
+            rm -f out/tt935-arm32-guest/package_service_snippet.txt
+            echo "ARM32_OFFICIAL_IMAGE_BOOT_OK $(cat out/tt935-arm32-guest/guest_abi.txt) Android=$(cat out/tt935-arm32-guest/guest_release.txt)"
+          else
+            echo "ARM32_ANDROID_BOOT_NOT_CONFIRMED"
+          fi
+          kill "$EMU_PID" 2>/dev/null || true
+          sleep 2
+          [ "$boot" = 1 ] || exit 33
+      - name: Preserve all diagnostics even if image/install/boot fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-D01-true-arm32-api25-official-image-attempt
+          path: out/tt935-arm32-guest/
+          retention-days: 28
+          if-no-files-found: warn
