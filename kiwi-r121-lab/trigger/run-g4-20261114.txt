@@ -1,0 +1,1 @@
+R121 HF1 official Kiwi Android11 targeted G4. Pinned private package SHA256 5a61187f35ecc77a5515760acd59b6085d3965d5235e27ef7634e7820d15a6d8. No raw plugin uploaded. Verify automatic CDP, passive security from observed headers, resource budget, fixture requests. All other original gates preserved.
