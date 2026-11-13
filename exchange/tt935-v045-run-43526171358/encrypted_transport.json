@@ -1,0 +1,12 @@
+{
+  "schema": "TT935-CI-ENCRYPTED-APKV1",
+  "session": "tt935_v045_run_43526171358",
+  "source_sha256": "de6fb9acb39636d64ff9960f1f1e2d815e27a65d5a6ba28e2ca8f7e66232ed31",
+  "source_bytes": 67259130,
+  "cipher_sha256": "6ce0ad5d258d15561c8879f185c0992af50d7570dc4ddb37a2bf0f19c127675e",
+  "cipher_bytes": 67259146,
+  "nonce_b64": "f7+C16GDA+YpvOeG",
+  "keywrap_b64": "s7D7LmtD8V96/4WKLHvFKUoXIV9wT4zKCNguhbX5A0nzICBwb+uKOB27H/G4KfLukQ5eoWqDVEtUrAQrzEkcvTj/ybqYvElYAVH5iV11f36bF5g9lUK+JFgr0LfQ7MIQUOAjCZRzWmB6hzeNj1wpHxnYdGxA2UpAghvMrRD5pRsNFFqXOYs64wBpx8AtUX4+4JuU3/v4u9cGwZrzBAmEYnveDcoC1xtRH60WK/x76uPetoFqHEEUpfFX39JdpvzPzJV2FvZlh8NHfs6O4HIWlyuu3M2LrmJt8a7P20Fzrk+noGK+6XXMyYi1imuD3ZoyMjQyzD/+7W3yoBj3ZkWYdpm+lm/3d5cnXGbWMCEAeWT4FkXo1Rs90db+XC66EBXMfATOwVIykVDi4+58dMYI2/U1o9rJQkSqv41hkRCAAkhcwTgbU5WXXKuwoqgkOZRSPKqnMjjTvh2MWhSvLdBtXquIZJY30EG7LEnQjDYoqbnk44CvDsUitB6p2KcCVuga",
+  "receiver_public_key_run_id": "43526171358",
+  "encrypted_blob_url": "https://sdmntprcentralus.oaiusercontent.com/files/00000000-9208-81f5-b1d1-363b92884f25/raw?se=2026-11-13T23%3A25%3A07Z&sp=r&sv=2026-06-06&sr=b&scid=e652c693-4219-5fc3-9bc6-33547265df78&skoid=de71a0d5-fb02-4fce-be69-9296aced242b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-13T19%3A33%3A13Z&ske=2026-11-14T19%3A33%3A13Z&sks=b&skv=2026-06-06&sig=2IFt%2BcfkuHOn4pWc9E78nEny3n30e2IEPXOob%2BSbyK0%3D"
+}
