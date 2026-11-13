@@ -37,6 +37,7 @@ jobs:
           $result | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 'out/p052_excel_com_environment.json'
           Get-Content 'out/p052_excel_com_environment.json'
           if($code -ne 0 -and $code -ne 13){throw 'EXCEL_COM_UNEXPECTED_PROBE_RESULT'}
+          exit 0
       - name: Upload sanitized nonprivate COM evidence
         if: always()
         uses: actions/upload-artifact@v4
