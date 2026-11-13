@@ -1,0 +1,96 @@
+name: TT935 D01 legacy 28.0.25 QEMU ARMv7 AVD software emulator
+on:
+  push:
+    branches: [tt935-arm32-native-guest-v01]
+    paths:
+      - '.github/workflows/tt935-arm32-legacy-emu-v01.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  legacy-arm32-engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install official API25 ARMv7 image, host libs, and pinned 2019 emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/tt935-arm32-legacy
+          sudo apt-get update -qq >out/tt935-arm32-legacy/apt.log 2>&1
+          sudo apt-get install -y -qq libpulse0 libnss3 libxcb1 libx11-6 libgl1 libglu1-mesa libxkbcommon0 >>out/tt935-arm32-legacy/apt.log 2>&1
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "system-images;android-25;google_apis;armeabi-v7a" >out/tt935-arm32-legacy/sdk_install.log 2>&1
+          curl -fLS --retry 3 --max-time 240 \
+            "https://dl.google.com/android/repository/emulator-linux-5395263.zip" \
+            -o /tmp/tt935-emulator-28.0.25.zip
+          sha256sum /tmp/tt935-emulator-28.0.25.zip >out/tt935-arm32-legacy/official_legacy_sha256.txt
+          unzip -t /tmp/tt935-emulator-28.0.25.zip | tail -6 >out/tt935-arm32-legacy/zip_test.txt
+          unzip -l /tmp/tt935-emulator-28.0.25.zip | grep -E 'emulator(-headless|64-arm|-arm)?$|qemu-system-arm|qemu-system-aarch64' \
+            >out/tt935-arm32-legacy/legacy_emulator_engine_list.txt || true
+          mkdir -p /tmp/tt935-legacy-sdk
+          unzip -q /tmp/tt935-emulator-28.0.25.zip -d /tmp/tt935-legacy-sdk
+          test -x /tmp/tt935-legacy-sdk/emulator/emulator
+          /tmp/tt935-legacy-sdk/emulator/emulator -version >out/tt935-arm32-legacy/version.txt 2>&1 || true
+          ls -lah /tmp/tt935-legacy-sdk/emulator >out/tt935-arm32-legacy/contents.txt
+      - name: Create actual ARMv7 AVD with explicit index
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd \
+              -n "TT935_ARM32_Legacy25" -k "system-images;android-25;google_apis;armeabi-v7a" \
+              -p "$ANDROID_AVD_HOME/TT935_ARM32_Legacy25.avd" -d "pixel_2" -f \
+              >out/tt935-arm32-legacy/avd_create.log 2>&1 < /dev/null
+          cat >"$ANDROID_AVD_HOME/TT935_ARM32_Legacy25.ini" <<END_AVD
+          avd.ini.encoding=UTF-8
+          path=$ANDROID_AVD_HOME/TT935_ARM32_Legacy25.avd
+          target=android-25
+          END_AVD
+          /tmp/tt935-legacy-sdk/emulator/emulator -list-avds >out/tt935-arm32-legacy/list_avds.txt 2>&1 || true
+          grep -q 'TT935_ARM32_Legacy25' out/tt935-arm32-legacy/list_avds.txt
+      - name: Boot official ARM32 guest with legacy QEMU engine and software CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_I_WANT_MY_TCG=yes
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          export QT_QPA_PLATFORM=offscreen
+          /tmp/tt935-legacy-sdk/emulator/emulator -avd TT935_ARM32_Legacy25 \
+            -no-window -noaudio -no-boot-anim -no-snapshot -gpu off -accel off \
+            -memory 2048 -cores 1 \
+            >out/tt935-arm32-legacy/emulator.log 2>&1 &
+          PID=$!
+          boot=0
+          for i in $(seq 1 55); do
+            sleep 12
+            timeout 8 "$ANDROID_HOME/platform-tools/adb" devices -l >out/tt935-arm32-legacy/last_adb.txt 2>&1 || true
+            value=$(timeout 8 "$ANDROID_HOME/platform-tools/adb" shell getprop sys.boot_completed 2>/dev/null || true)
+            echo "$i,$value" >>out/tt935-arm32-legacy/boot_progress.csv
+            if [ "$value" = "1" ]; then boot=1; break; fi
+            kill -0 "$PID" 2>/dev/null || break
+          done
+          if [ "$boot" = 1 ]; then
+            adb="$ANDROID_HOME/platform-tools/adb"
+            "$adb" shell getprop ro.product.cpu.abilist >out/tt935-arm32-legacy/guest_abi.txt
+            "$adb" shell getprop ro.build.version.release >out/tt935-arm32-legacy/guest_version.txt
+            "$adb" shell getprop ro.dalvik.vm.native.bridge >out/tt935-arm32-legacy/guest_nativebridge.txt
+            echo "TRUE_ARM32_BOOT_SUCCESS $(cat out/tt935-arm32-legacy/guest_abi.txt)"
+          else
+            echo "LEGACY_ARM32_BOOT_FAILED"
+          fi
+          kill "$PID" 2>/dev/null || true
+          [ "$boot" = 1 ] || exit 36
+      - name: Preserve all real attempt evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-D01-legacy-emulator-28.0.25-arm32
+          path: out/tt935-arm32-legacy/
+          retention-days: 28
+          if-no-files-found: warn
