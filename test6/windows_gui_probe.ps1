@@ -4,6 +4,7 @@ param(
  [string]$ReportPath = "$env:RUNNER_TEMP\test6-win-gui-report.json"
 )
 $ErrorActionPreference='Stop'
+$script:Test6SourcePath=$PSCommandPath
 if ($App) {
  Add-Type -AssemblyName System.Windows.Forms
  Add-Type -AssemblyName System.Drawing
@@ -43,9 +44,9 @@ public static class N {
 }
 '@
 function Start-Gui {
- $appScript=$MyInvocation.MyCommand.Path
- # Parent-scoped runner temporary directory only.
- return Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList @('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',('"'+$PSCommandPath+'"'),'-App','-StatePath',('"'+$StatePath+'"')) -PassThru
+ # Explicitly use caller script file, never function's invocation path
+ $arg="-NoProfile -STA -ExecutionPolicy Bypass -File `"$script:Test6SourcePath`" -App -StatePath `"$StatePath`""
+ return Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $arg -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\test6-child-out.txt" -RedirectStandardError "$env:RUNNER_TEMP\test6-child-err.txt"
 }
 $report=[ordered]@{schema='test6-windows-gui-v1';os=$env:RUNNER_OS;gates=@{};scope='Synthetic WinForms control only, NOT user product EXE'}
 function Gate([string]$n,[bool]$ok,[string]$detail) {$report.gates[$n]=@{status=$(if($ok){'PASS'}else{'FAIL'});detail=$detail};Write-Host "$n $ok"}
@@ -53,7 +54,8 @@ try {
  $proc=Start-Gui
  $w=[IntPtr]::Zero
  for($i=0;$i -lt 80;$i++){Start-Sleep -Milliseconds 300;$w=[N]::FindWindow($null,'TEST6_REAL_WINDOWS_GUI');if($w -ne [IntPtr]::Zero){break}}
- Gate 'real_winforms_window' ($w -ne [IntPtr]::Zero) ('Handle='+$w)
+ $childDiag='';if(Test-Path "$env:RUNNER_TEMP\test6-child-err.txt"){$childDiag=Get-Content "$env:RUNNER_TEMP\test6-child-err.txt" -Raw}
+ Gate 'real_winforms_window' ($w -ne [IntPtr]::Zero) ('Handle='+$w+' ProcExited='+$proc.HasExited+' ChildError='+$childDiag)
  if($w -eq [IntPtr]::Zero){throw 'WinForms window did not appear'}
  $b=[N]::ChildByText($w,'TEST6_SAVE_AND_EXIT')
  Gate 'real_button_handle' ($b -ne [IntPtr]::Zero) ('Handle='+$b)
