@@ -1,0 +1,20 @@
+name: TT935 V041 probe signed temporary blob transport
+on:
+  push:
+    branches: [tt935-v041-secure-emulator]
+    paths: ['.github/workflows/tt935-blob-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Fetch short-lived public dummy blob by Drive connector signed URL
+        env:
+          PROBE_URL: 'https://sdmntprcentralus.oaiusercontent.com/files/00000000-88c8-81f5-b650-2c004e9cb225/raw?se=2026-11-13T16%3A29%3A55Z&sp=r&sv=2026-06-06&sr=b&scid=c00feb9c-05a9-5bf9-8a6e-b13a2bc86e8c&skoid=de71a0d5-fb02-4fce-be69-9296aced242b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-13T15%3A41%3A36Z&ske=2026-11-14T15%3A41%3A36Z&sks=b&skv=2026-06-06&sig=RpGVoYxM8p%2Bh%2BtnheYnyHIzY%2B2XAdla9DnaLfm9rVlU%3D'
+        run: |
+          set -euo pipefail
+          curl -fLS --retry 2 --max-time 20 "$PROBE_URL" -o /tmp/probe.txt
+          echo '0c582a50a9d541caf454ed301d9c2567c020e8d377f193e74975cf3e1c327471  /tmp/probe.txt' | sha256sum -c -
+          echo 'PUBLIC_DUMMY_SIGNED_URL_TRANSFER_PASS'
