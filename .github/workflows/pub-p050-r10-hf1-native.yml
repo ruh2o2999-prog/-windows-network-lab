@@ -1,0 +1,125 @@
+name: P050 R10-HF1 crash recovery and user edit negative (isolated candidate)
+on:
+  push:
+    branches: [publisher-v211210-p050-r10-hf1-recovery-20261113]
+    paths:
+      - '.github/workflows/pub-p050-r10-hf1-native.yml'
+      - 'ci/p050_native_20261113/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  real-p050-native:
+    runs-on: windows-2022
+    timeout-minutes: 29
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate ephemeral RSA3072 receiver certificate (public cert only)
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force exchange,out | Out-Null
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $key=Join-Path $env:RUNNER_TEMP 'p050_rsa_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'p050_rsa_public.crt'
+          & $openssl req -x509 -newkey rsa:3072 -keyout $key -out $cert -sha256 -days 1 -nodes -subj '/CN=P050NativePrivateReceiver/' 2>$null
+          if($LASTEXITCODE){throw 'EPHEMERAL_RSA_GENERATION_FAILED'}
+          $p="exchange/p050-native-run-$env:GITHUB_RUN_ID.crt"
+          Copy-Item $cert $p
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add $p
+          git commit -m "ci: P050 native one-run PUBLIC cert $env:GITHUB_RUN_ID"
+          if($LASTEXITCODE){throw 'PUBLIC_CERT_COMMIT_FAILED'}
+          git push origin HEAD:publisher-v211210-p050-r10-hf1-recovery-20261113
+          if($LASTEXITCODE){throw 'PUBLIC_CERT_PUSH_FAILED'}
+          Write-Host "P050_NATIVE_CERT_READY=$p"
+      - name: Receive encrypted original P050 input with fixed trusted SHA
+        run: |
+          $ErrorActionPreference='Stop'
+          $branch='publisher-v211210-p050-r10-hf1-recovery-20261113'
+          $base="exchange/p050-native-run-$env:GITHUB_RUN_ID"
+          $found=$false
+          $cipher=Join-Path $env:RUNNER_TEMP 'p050_original_cipher.p7m'
+          for($attempt=0;$attempt -lt 210;$attempt++){
+            git fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            if($LASTEXITCODE){throw 'GIT_FETCH_FAILED'}
+            $raw=git show "origin/${branch}:$base.ready.json" 2>$null
+            if($LASTEXITCODE -eq 0 -and $raw){
+              $info=($raw -join '') | ConvertFrom-Json
+              if($info.parts -lt 1 -or $info.parts -gt 64){throw 'PART_COUNT_NOT_ALLOWED'}
+              $b=[System.Text.StringBuilder]::new()
+              for($i=1;$i -le [int]$info.parts;$i++){
+                $p=('{0}.p7m.b64.part{1:D2}' -f $base,$i)
+                $part=git show "origin/${branch}:$p" 2>$null
+                if($LASTEXITCODE -ne 0 -or !$part){throw 'CIPHERTEXT_PART_MISSING'}
+                [void]$b.Append(($part -join '').Trim())
+              }
+              [IO.File]::WriteAllBytes($cipher,[Convert]::FromBase64String($b.ToString()))
+              $observed=(Get-FileHash $cipher -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($observed -ne [string]$info.cipher_sha256){throw 'CIPHER_SHA_MISMATCH'}
+              $found=$true
+              break
+            }
+            Start-Sleep -Seconds 4
+          }
+          if(!$found){throw 'NO_ENCRYPTED_HANDOFF_RECEIVED'}
+          $openssl='C:\Program Files\Git\usr\bin\openssl.exe'
+          if(!(Test-Path $openssl)){$openssl=(Get-Command openssl.exe -ErrorAction Stop).Source}
+          $private=Join-Path $env:RUNNER_TEMP 'p050_rsa_private.pem'
+          $cert=Join-Path $env:RUNNER_TEMP 'p050_rsa_public.crt'
+          $plain=Join-Path $env:RUNNER_TEMP 'P050_private_verified.zip'
+          & $openssl cms -decrypt -binary -inform DER -in $cipher -recip $cert -inkey $private -out $plain
+          if($LASTEXITCODE){throw 'CMS_DECRYPT_FAILED'}
+          $digest=(Get-FileHash $plain -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest -ne '36e0dea0058f1d7cfbf2a29155ee2256c86443fc3011ef6acd5acc165b1bf105'){
+            throw 'ORIGINAL_P050_HANDOFF_SHA_MISMATCH'
+          }
+          $input=Join-Path $env:RUNNER_TEMP 'P050_Original_Input'
+          New-Item -ItemType Directory -Force $input | Out-Null
+          $env:P050_IN=$input
+          $env:P050_ZIP=$plain
+          @'
+          import zipfile,os,hashlib,json
+          with zipfile.ZipFile(os.environ['P050_ZIP']) as z:
+              expected={'publisher_v211210_original.exe','p050_original_34.zip','input_integrity.json'}
+              assert set(z.namelist())==expected and z.testzip() is None
+              meta=json.loads(z.read('input_integrity.json'))
+              assert meta['input_files']==34
+              z.extractall(os.environ['P050_IN'])
+          print('P050_ENCRYPTED_ORIGINAL_HANDED_OFF_AND_VERIFIED')
+          '@ | python -
+          if($LASTEXITCODE){throw 'ORIGINAL_ARCHIVE_VALIDATION_FAILED'}
+          Remove-Item $plain,$cipher,$private -Force -ErrorAction SilentlyContinue
+          $input | Set-Content (Join-Path $env:RUNNER_TEMP 'p050_input_location.txt')
+      - name: Actually run original V2.11.2.10 publisher GUI and both Windows installers
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Get-Content (Join-Path $env:RUNNER_TEMP 'p050_input_location.txt') -Raw
+          $root=$root.Trim()
+          python -m py_compile ci/p050_native_20261113/native_p050_gui.py ci/p050_native_20261113/run_p050_native.py ci/p050_native_20261113/run_p050_hf1_native.py ci/p050_native_20261113/verify_payload.py ci/p050_native_20261113/native_wf_failure_contract.py
+          if($LASTEXITCODE){throw 'NATIVE_SCRIPT_SYNTAX_FAILED'}
+          python ci/p050_native_20261113/run_p050_hf1_native.py --input $root --report-dir out/clean --verify-module ci/p050_native_20261113/verify_payload.py --phase deploy
+          if($LASTEXITCODE){throw 'HF1_CLEAN_AUTO_RECOVERY_FAILED'}
+          python ci/p050_native_20261113/run_p050_hf1_native.py --input $root --report-dir out/tamper --verify-module ci/p050_native_20261113/verify_payload.py --phase deploy --negative-user-edit
+          if($LASTEXITCODE){throw 'REAL_P050_34_TO_28_NATIVE_ACCEPTANCE_FAILED'}
+      - name: Cleanup private data/keys, retain sanitized results only
+        if: always()
+        run: |
+          $items=@('P050_Original_Input','P050_private_verified.zip','p050_original_cipher.p7m','p050_rsa_private.pem','p050_rsa_public.crt','p050_input_location.txt')
+          foreach($i in $items){$p=Join-Path $env:RUNNER_TEMP $i;if(Test-Path $p){Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue}}
+          Write-Host 'P050_PRIVATE_ORIGINALS_NOT_UPLOADED_AS_ARTIFACTS'
+      - name: Upload sanitized native evidence (no XLSM/ZIP/EXE)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p050-r10-hf1-native-sanitized-evidence
+          path: out/**/*.json
+          if-no-files-found: warn
+          retention-days: 14
