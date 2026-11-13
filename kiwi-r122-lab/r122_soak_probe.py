@@ -45,6 +45,12 @@ def execute(run,ws,tab_id,fixture,out,state,seconds=240,interval=15):
                 'captureError':c.get('lastError'),'degraded':c.get('degraded')})
         except Exception as e:
             s['cdpOk']=False;s['cdpError']=repr(e)
+            # Distinguish a blocked original extension status callback from a
+            # broken CDP transport without claiming that the failed sample passed.
+            try:
+                s['cdpHealthAfterTimeout']=cdp_eval(ws,"({alive:true,ready:document.readyState,stamp:Date.now()})",timeout=7)
+            except Exception as health_exc:
+                s['cdpHealthError']=repr(health_exc)
         result['samples'].append(s)
         print('R122_SOAK_SAMPLE',json.dumps({k:s.get(k) for k in ('sample','elapsedSec','fixtureHttpHits','pids','pssKiB','mode','activeCount','storageUsage','storagePressure','cdpOk','cdpError')},ensure_ascii=False),flush=True)
     elapsed=time.monotonic()-begin
@@ -68,6 +74,15 @@ def execute(run,ws,tab_id,fixture,out,state,seconds=240,interval=15):
     gate('R122-04_real_page_traffic_continues',fixture.hits-initial_hits>=max(100,int(seconds*1.5)),{'requestsDelta':fixture.hits-initial_hits})
     gate('R122-05_storage_remains_under_soft_limit',all((x.get('storageUsage') or 0)<268435456 and x.get('storagePressure') is False for x in samples if x.get('cdpOk')),{'lastUsage':samples[-1].get('storageUsage')})
     gate('R122-06_android_memory_process_reproducible',len(valid)>=len(samples)-1 and all(x.get('pids') for x in samples),{'validMeminfoSamples':len(valid),'peakPssKiB':result['summary']['peakPssKiB'],'uniquePidSets':len(result['summary']['pidSets'])})
+    # Strict supplemental gates: a missing final sample is not a verified
+    # storage reading; older six scoped R122 gates remain in original evidence.
+    gate('R122-07_all_cdp_reads_acknowledged',
+         len(ok_modes)==len(samples),
+         {'valid':len(ok_modes),'total':len(samples),'errors':[x.get('cdpError') for x in samples if not x.get('cdpOk')]})
+    stored=[x for x in samples if x.get('cdpOk') and isinstance(x.get('storageUsage'),int) and isinstance(x.get('storagePressure'),bool)]
+    gate('R122-08_all_storage_samples_observed',
+         len(stored)==len(samples),
+         {'validStorage':len(stored),'total':len(samples),'lastSample':samples[-1].get('storageUsage')})
     result['gates']['R121-13_24h_soak']={'status':'NOT_RUN','evidence':'R122 sampled only '+str(round(elapsed))+' seconds; 24h baseline remains open'}
     with (out/'r122_android_soak.csv').open('w',newline='',encoding='utf8') as f:
         cols=sorted(set().union(*(x.keys() for x in samples)))
