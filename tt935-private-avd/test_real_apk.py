@@ -4,10 +4,10 @@ No app plaintext, signed-download URL, or private key in committed code/artifact
 Do not sign in with an account or interact with user data.
 """
 import datetime,hashlib,json,pathlib,re,subprocess,time,xml.etree.ElementTree as ET
-APK=pathlib.Path("/tmp/tt935-v041-private.apk")
-OUT=pathlib.Path("out/tt935-v041-real-avd");OUT.mkdir(parents=True,exist_ok=True)
+APK=pathlib.Path("/tmp/tt935-v045-private.apk")
+OUT=pathlib.Path("out/tt935-v045-real-avd");OUT.mkdir(parents=True,exist_ok=True)
 PKG="com.ss.android.article.news"
-R={"tested_apk":"REAL TT935 V0.4.1 signed APK (private encrypted transport)",
+R={"tested_apk":"REAL TT935 V0.4.5 signed APK (private encrypted transport)",
    "sha256":hashlib.sha256(APK.read_bytes()).hexdigest(),"android":{},"steps":{},"images":[]}
 def adb(*args, timeout=80):
  try:
@@ -62,6 +62,11 @@ try:
  reported={x: (bool(re.search(r"^\s*"+re.escape(x)+r"\s*:",perms,re.M))) for x in banned}
  R["permission_not_declared"]=reported
  record("TT13-NO-FOUR-PRIVILEGED-PERMS",not any(reported.values()),reported)
+ _,widgetdump=adb("shell","dumpsys","appwidget",timeout=40)
+ visible=[line.strip()[:280] for line in widgetdump.splitlines() if PKG in line]
+ save("appwidget_provider_observation.txt","\n".join(visible))
+ record("G02-WIDGET-PROVIDERS-NOT-IN-SYSTEM",not visible,f"{len(visible)} matching entries in dumpsys appwidget")
+
  code,start=adb("shell","monkey","-p",PKG,"-c","android.intent.category.LAUNCHER","1",timeout=55)
  save("launch.log",start)
  record("TT05-LAUNCH-INTENT",code==0 and "Events injected: 1" in start,start)
@@ -105,3 +110,8 @@ finally:
  R["final_result"]="PARTIAL: installation/screenshot data available; TT10/TT12 only pass after visual review"
  (OUT/"result.json").write_text(json.dumps(R,ensure_ascii=False,indent=2))
  print("TT935_REAL_AVD_RESULT="+json.dumps({k:v for k,v in R.items() if k not in ["images"]},ensure_ascii=False))
+ if not R["steps"].get("TT05-REAL-INSTALL",{}).get("pass",False):
+  raise SystemExit(8)
+ if not R["steps"].get("TT06-NO-FATAL-EXCEPTION-IN-FILTERED-LOGS",{}).get("pass",False):
+  raise SystemExit(7)
+
