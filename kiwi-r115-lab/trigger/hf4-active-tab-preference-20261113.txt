@@ -1,0 +1,1 @@
+HF4 private candidate pinned SHA256 32b29ad046fe96b05ca67b51a02ed7afc951986132b3c96da0117e59bcd81d68; original 94/96 members unchanged; Chromium official active-tab-first selection; offline 7/7 test. No plaintext plugin in public repo.
