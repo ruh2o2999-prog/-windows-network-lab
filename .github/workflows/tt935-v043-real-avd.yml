@@ -77,7 +77,7 @@ jobs:
           assert m['session']==trusted_run and m['source_sha256']==trusted_sha
           url=m['encrypted_blob_url']
           u=urllib.parse.urlparse(url)
-          assert u.scheme=='https' and u.hostname in ('sdmntprcentralus.oaiusercontent.com', 'sdmntprnortheu.oaiusercontent.com')
+          assert u.scheme=='https' and u.hostname and u.hostname.startswith('sdmntpr') and u.hostname.endswith('.oaiusercontent.com') and u.username is None and u.port is None
           # Download ciphertext only. Never echo signed URL or key.
           subprocess.run(['curl','-fLSs','--retry','3','--retry-all-errors','--connect-timeout','20',
             '--max-time','240',url,'-o','/tmp/tt935-v043-cipher.bin'],check=True)
