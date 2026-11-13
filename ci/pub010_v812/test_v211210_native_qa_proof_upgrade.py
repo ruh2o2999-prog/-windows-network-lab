@@ -80,8 +80,14 @@ try:
     require_files({n:{"sha256":v} for n,v in m["new_file_expected_sha256"].items() if not n.startswith(("Data/","Data\\"))})
     if sha_file(datafile)!=data_sha or sha_file(userfile)!=note_sha:
         raise AssertionError("Old Data or user note changed during upgrade")
-    missing=[n for n in qa if (ROOT/n).exists()]
-    if len(missing)!=6:raise AssertionError("Six exact QA files not omitted: "+str(len(missing)))
+    # This list counts QA files STILL PRESENT in the live install root.
+    # The previous assertion was inverted (it expected six present!).
+    remaining=[n for n in qa if (ROOT/n).exists()]
+    result["qa_exact_six_checked"]=len(qa)
+    result["qa_remaining_in_live_root"]=len(remaining)
+    result["qa_remaining_names"]=remaining
+    if remaining:
+        raise AssertionError("Six SHA-pinned QA exclusions left unexpected live files: "+str(len(remaining)))
     if not all(backup_contains_any_exact(n,h) for n,h in qa.items()):
         raise AssertionError("Original QA content not retained in a dated backup")
     result["exact_six_omitted_from_live"]=True
