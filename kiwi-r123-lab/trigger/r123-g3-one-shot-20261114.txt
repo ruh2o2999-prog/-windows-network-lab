@@ -1,0 +1,1 @@
+Frozen R123 G2 candidate: diagnostic SHA256 85159c957fe2b92936f3da1e68ed975be0af5810d89331a1b961d15993c2eace; private plugin SHA256 5a61187f35ecc77a5515760acd59b6085d3965d5235e27ef7634e7820d15a6d8; 12 local unit tests, 5 real Chromium transport checks, cold-start reproducible. Exactly one consolidated Android G3 run; 24h and Android16 remain not-run.
