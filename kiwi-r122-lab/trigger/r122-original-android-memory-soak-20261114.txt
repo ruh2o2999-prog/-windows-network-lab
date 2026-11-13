@@ -1,0 +1,1 @@
+R122 real Android 11 Kiwi test: 240 seconds timed PSS, CDP, storage and local request samples. Source archive SHA256 5a61187f35ecc77a5515760acd59b6085d3965d5235e27ef7634e7820d15a6d8. Encrypted-only transfer via one-time RSA certificate. R121-13 24h remains NOT_RUN.
