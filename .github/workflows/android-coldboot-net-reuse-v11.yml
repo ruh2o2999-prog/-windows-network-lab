@@ -26,7 +26,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - uses: android-actions/setup-android@v3
       - name: NET-01 Independent host DNS, HTTPS and dependency network probes
         shell: bash
         run: |
@@ -40,9 +39,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-          sdkmanager --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0' | tee out/coldboot_v11/sdk_packages.txt
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0' | tee out/coldboot_v11/sdk_packages.txt
       - name: BOOT-01 Recover official JADX Apktool Smali Baksmali in networked clean runner
         shell: bash
         run: |
