@@ -17,7 +17,7 @@ class Fixture(BaseHTTPRequestHandler):
   self.send_response(200);self.send_header("Content-Type",mime);self.send_header("Content-Length",str(len(body)));self.send_header("Cache-Control","no-store");self.end_headers()
   if body:self.wfile.write(body)
  def log_message(self,*args):pass
-def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
+def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any,find_extensions_via_kiwi_menu):
  report={"gates":{},"errors":[],"scope":"Android11 API30 official Kiwi synthetic localhost only","uncovered":["Android16 ARM64","256MiB real disk pressure","24h soak","YouTube 403"]};ws=None
  def gate(k,ok,e):
   status="PASS" if ok else "FAIL";report["gates"][k]={"status":status,"evidence":e}
