@@ -1,0 +1,134 @@
+name: Kiwi R124 G3 frozen automatic capture status and persistence Android
+on:
+  push:
+    branches: [kiwi-r124-g3-singlefile-20261114]
+    paths:
+      - 'kiwi-r124-lab/trigger/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  kiwi-production-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: R121 targeted Android G4 preflight, reuse installed Kiwi route
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q websocket-client==1.8.0
+          echo '85159c957fe2b92936f3da1e68ed975be0af5810d89331a1b961d15993c2eace  kiwi-r122-lab/r122_soak_probe.py' | sha256sum -c -
+          python3 -m py_compile kiwi-r122-lab/r122_soak_probe.py kiwi-r121-lab/r121_android_g4.py kiwi-r109-lab/r109_history_recovery.py kiwi-r104-lab/r104-production-network-test.py kiwi-android-lab/download_kiwi.py
+          mkdir -p out
+          # Official Kiwi release fixed tag and SHA from original successful R102/117 runs.
+          # Direct release asset avoids GitHub releases API anonymous rate limits.
+          curl -fL --retry 6 --retry-all-errors --retry-delay 4 --connect-timeout 20 --max-time 650 \
+            'https://github.com/kiwibrowser/src.next/releases/download/14310011181/com.kiwibrowser.browser-x64-14310011181-github.apk' \
+            -o kiwi-official-x64.apk
+          python3 - <<'PY_KIWI_APK'
+          import hashlib,zipfile,json
+          p='kiwi-official-x64.apk'
+          from pathlib import Path
+          b=Path(p).read_bytes()
+          expected='38a5e730b114fa508bafe75ca57e27a3ed923c9bf3b05d91c1273dd8d9fc18e2'
+          assert len(b)==246183877 and hashlib.sha256(b).hexdigest()==expected,'official Kiwi asset identity mismatch'
+          with zipfile.ZipFile(p) as z:assert 'AndroidManifest.xml' in z.namelist()
+          Path('out/official_apk_manifest.json').write_text(json.dumps({'asset_name':'com.kiwibrowser.browser-x64-14310011181-github.apk','tag':'14310011181','bytes':len(b),'sha256':expected},indent=2))
+          print('R121_PINNED_DIRECT_RELEASE_APK_PASS',len(b),expected)
+          PY_KIWI_APK
+          python3 - <<'PY_R121'
+          from pathlib import Path
+          p=Path('kiwi-r104-lab/r104-production-network-test.py')
+          s=p.read_text(encoding='utf8')
+          needle="    snapshot('r103_formal_manager_final')"
+          assert s.count(needle)==1,'Kiwi original successful install seam changed; fail closed'
+          addition="\n".join([
+            "    sys.path.insert(0,str(Path('kiwi-r108-lab').absolute()))",
+            "    sys.path.insert(0,str(Path('kiwi-r109-lab').absolute()))",
+            "    sys.path.insert(0,str(Path('kiwi-r121-lab').absolute()))",
+            "    from r121_android_g4 import execute as r121_execute",
+            "    r121_execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any)",
+            "    return"])
+          s=s.replace(needle,needle+'\n'+addition)
+          p.write_text(s,encoding='utf8')
+          print('R121_NATIVE_TARGETED_RUNNER_PATCH_PASS')
+          PY_R121
+      - name: Publish one-time receiver certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:3072 -keyout /tmp/r103-private-key.pem -out /tmp/r103-certificate.pem -sha256 -days 1 -nodes -subj '/CN=KiwiR124Ephemeral/' >/dev/null 2>&1
+          chmod 600 /tmp/r103-private-key.pem
+          mkdir -p exchange
+          cp /tmp/r103-certificate.pem "exchange/r124-run-${GITHUB_RUN_ID}.crt"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "exchange/r124-run-${GITHUB_RUN_ID}.crt"
+          git commit -m "ci(r115): one-time receiver certificate run ${GITHUB_RUN_ID}"
+          git push origin HEAD:kiwi-r124-g3-singlefile-20261114
+          echo "R124_PUBLIC_CERT_READY=exchange/r124-run-${GITHUB_RUN_ID}.crt"
+      - name: Receive session ciphertext, decrypt on ephemeral runner only
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="exchange/r124-run-${GITHUB_RUN_ID}.p7m.b64"
+          FOUND=0
+          for attempt in $(seq 1 180); do
+            git fetch -q origin '+refs/heads/kiwi-r124-g3-singlefile-20261114:refs/remotes/origin/kiwi-r124-g3-singlefile-20261114'
+            if git show "origin/kiwi-r124-g3-singlefile-20261114:${NAME}" > /tmp/r103-package.p7m.b64 2>/dev/null; then
+              FOUND=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$FOUND" != 1 ]; then echo 'R124_SINGLE_CIPHERTEXT_TIMEOUT'; exit 23; fi
+          echo "R124_SINGLE_CIPHERTEXT_RECEIVED=1"
+          base64 -d /tmp/r103-package.p7m.b64 > /tmp/r103-package.p7m
+          openssl cms -decrypt -binary -inform DER -in /tmp/r103-package.p7m -recip /tmp/r103-certificate.pem -inkey /tmp/r103-private-key.pem -out /tmp/kiwi-r104-production.zip
+          python3 - <<'PY'
+          import zipfile,hashlib,json
+          p='/tmp/kiwi-r104-production.zip'
+          with zipfile.ZipFile(p) as z:
+            assert z.testzip() is None
+            m=json.loads(z.read('manifest.json'))
+            assert m['manifest_version']==2 and m['version']=='0.4.59' and m.get('version_name','').startswith('0.4.59-rc6-r124')
+          expected='e785817a498c342f1031a46895d9c39acc185bca89af6b5d18c15db31797514d'
+          assert hashlib.sha256(open(p,'rb').read()).hexdigest()==expected
+          report={'source':'R124 single-file encrypted session MV2 archive','sha256':expected,'bytes':__import__('os').path.getsize(p),'version':m['version'],'name':m['name']}
+          open('out/formal_package_provenance.json','w').write(json.dumps(report,ensure_ascii=False,indent=2))
+          print('R124_DECRYPTED_CRC_SHA_PINNED',json.dumps(report,ensure_ascii=False))
+          PY
+          rm -f /tmp/r103-package.p7m /tmp/r103-package.p7m.b64
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -la /dev/kvm || true
+      - name: Android11 official Kiwi R124 strict status and persistence soak
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          R103_PRODUCTION_ZIP: /tmp/kiwi-r104-production.zip
+          R110_EXPECTED_VERSION: '0.4.59'
+          R110_EXPECTED_SHA256: e785817a498c342f1031a46895d9c39acc185bca89af6b5d18c15db31797514d
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-r104-lab/r104-production-network-test.py
+      - name: Erase ephemeral private package, keys and raw task exports
+        if: always()
+        run: rm -f /tmp/kiwi-r104-production.zip /tmp/r103-private-key.pem /tmp/r103-certificate.pem /tmp/r103-export-recovered.zip /tmp/r108-real-post-restart-historical.zip
+      - name: Save real screenshots, logs, status; never upload plugin plaintext
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r124-g3-singlefile-android-evidence
+          path: out/
+          if-no-files-found: warn
