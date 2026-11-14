@@ -1,0 +1,86 @@
+name: TT935 D01 native ARM64 ReDroid Android11 dual-ABI container boot
+on:
+  push:
+    branches: [tt935-arm32-native-guest-v01]
+    paths:
+      - '.github/workflows/tt935-redroid-arm64-v01.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  redroid-native-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Prepare binderfs and ARM64 Android userspace container runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/tt935-redroid-arm64
+          uname -a | tee out/tt935-redroid-arm64/host.txt
+          getconf PAGESIZE | tee out/tt935-redroid-arm64/host_pagesize.txt
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+          sudo mkdir -p /dev/binderfs
+          sudo mount -t binder binder /dev/binderfs
+          sudo chmod 666 /dev/binderfs/binder /dev/binderfs/hwbinder /dev/binderfs/vndbinder
+          ls -l /dev/binderfs >out/tt935-redroid-arm64/binderfs.txt
+          docker info --format 'EngineArch={{.Architecture}}' >out/tt935-redroid-arm64/docker_arch.txt
+          sudo apt-get update -qq >out/tt935-redroid-arm64/apt.log 2>&1
+          sudo apt-get install -y -qq adb >>out/tt935-redroid-arm64/apt.log 2>&1
+          adb version >out/tt935-redroid-arm64/adb_version.txt
+      - name: Download official ReDroid Android 11 dual-ABI image, inspect real architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/arm64 'redroid/redroid:11.0.0-latest' >out/tt935-redroid-arm64/docker_pull.log 2>&1 || {
+            tail -130 out/tt935-redroid-arm64/docker_pull.log; exit 41; }
+          docker image inspect 'redroid/redroid:11.0.0-latest' \
+           --format 'ID={{.Id}} Arch={{.Architecture}} OS={{.Os}}' >out/tt935-redroid-arm64/image_info.txt
+          cat out/tt935-redroid-arm64/image_info.txt
+      - name: Start actual native ARM Android container and check boot/package/ARM32 ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --rm --privileged --platform linux/arm64 \
+            --name tt935-redroid-d01 \
+            -v /dev/binderfs:/dev/binderfs \
+            -p 127.0.0.1:5555:5555 \
+            'redroid/redroid:11.0.0-latest' \
+            androidboot.redroid_gpu_mode=guest >out/tt935-redroid-arm64/container_id.txt
+          boot=0
+          for i in $(seq 1 58); do
+            sleep 6
+            docker ps --format '{{.Names}}' >out/tt935-redroid-arm64/docker_running.txt || true
+            adb connect 127.0.0.1:5555 >out/tt935-redroid-arm64/adb_connect.txt 2>&1 || true
+            bootprop=$(timeout 9 adb -s 127.0.0.1:5555 shell getprop sys.boot_completed 2>/dev/null || true)
+            echo "$i,$bootprop" >>out/tt935-redroid-arm64/boot_progress.csv
+            if [ "$bootprop" = "1" ]; then boot=1; break; fi
+            docker inspect -f '{{.State.Running}}' tt935-redroid-d01 2>/dev/null | grep -q true || break
+          done
+          if [ "$boot" = 1 ]; then
+            adb -s 127.0.0.1:5555 shell getprop ro.build.version.release >out/tt935-redroid-arm64/guest_android.txt
+            adb -s 127.0.0.1:5555 shell getprop ro.product.cpu.abilist >out/tt935-redroid-arm64/guest_abi.txt
+            adb -s 127.0.0.1:5555 shell getprop ro.dalvik.vm.native.bridge >out/tt935-redroid-arm64/native_bridge.txt
+            adb -s 127.0.0.1:5555 shell pm list packages android >out/tt935-redroid-arm64/package_query.txt
+            adb -s 127.0.0.1:5555 shell dumpsys display >out/tt935-redroid-arm64/display_excerpt.txt 2>&1 || true
+            head -c 5000 out/tt935-redroid-arm64/display_excerpt.txt >out/tt935-redroid-arm64/display_first.txt
+            rm -f out/tt935-redroid-arm64/display_excerpt.txt
+            echo "ANDROID11_NATIVE_ARM_CONTAINER_BOOT_SUCCESS abi=$(cat out/tt935-redroid-arm64/guest_abi.txt)"
+          fi
+          docker logs --tail 550 tt935-redroid-d01 >out/tt935-redroid-arm64/container_logs.txt 2>&1 || true
+          echo "REDROID_BOOT_VERIFIED=$boot"
+          [ "$boot" = 1 ] || exit 42
+          grep -q 'armeabi-v7a' out/tt935-redroid-arm64/guest_abi.txt || { echo ARM32_APP_ABI_NOT_SUPPORTED; exit 43; }
+          if grep -Eqi 'x86' out/tt935-redroid-arm64/guest_abi.txt; then echo UNEXPECTED_X86_TRANSLATION; exit 44; fi
+      - name: Preserve diagnostics even on boot or ABI failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-D01-redroid-native-arm64-android11-boot-evidence
+          path: out/tt935-redroid-arm64/
+          retention-days: 28
+          if-no-files-found: warn
+      - name: Stop temporary Android container
+        if: always()
+        run: |
+          docker rm -f tt935-redroid-d01 2>/dev/null || true
