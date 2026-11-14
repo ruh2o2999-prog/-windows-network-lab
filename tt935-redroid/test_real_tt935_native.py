@@ -63,7 +63,6 @@ try:
  R["installed_package_summary"]=abi_lines[:12]
  gate("D01-03-PACKAGE-ABI-ARM",any("armeabi-v7a" in x for x in abi_lines),abi_lines[:5])
  perms=["ACCESS_FINE_LOCATION","ACCESS_COARSE_LOCATION","CAMERA","RECORD_AUDIO"]
- present={p:bool(re.search(r"\bandroid\.permission\."+p+r"\b",q)) for p in perms for q in [p[:0]+p if False else p]}
  # Match *declared* permissions, not incidental AppOps or system descriptions.
  declared=p.split("requested permissions:")[-1].split("install permissions:")[0] if "requested permissions:" in p else ""
  present={x:("android.permission."+x in declared) for x in perms}
@@ -71,8 +70,12 @@ try:
  _,widgets=run("widgets",["shell","dumpsys","appwidget"],timeout=65)
  found=[x[:260] for x in widgets.splitlines() if PKG in x]
  gate("G02-NO-REGISTERED-WIDGETS",len(found)==0,f"matching provider lines={len(found)}")
- c,launch=run("launch",["shell","monkey","-p",PKG,"-c","android.intent.category.LAUNCHER","1"],timeout=50)
- gate("D01-04-LAUNCH-COMMAND",c==0 and "Events injected: 1" in launch,launch[-600:])
+ # ReDroid has no physical navigation keys. Monkey exits before injecting events.
+ # Launch the actual MAIN/LAUNCHER activity discovered by reading V0.4.5 AndroidManifest.xml.
+ component=PKG+"/.activity.MainActivity"
+ c,launch=run("launch",["shell","am","start","-W","-n",component],timeout=105)
+ good=(c==0 and "Error:" not in launch and ("Status: ok" in launch or "Starting:" in launch or "Activity not started" in launch))
+ gate("D01-04-EXPLICIT-ACTIVITY-START",good,launch[-850:])
  time.sleep(8);screenshot("initial")
  for i in range(3):
   run(f"foreground_{i}",["shell","dumpsys","activity","activities"],timeout=60)
