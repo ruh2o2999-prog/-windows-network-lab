@@ -81,7 +81,7 @@ def cdp_targets():
  with urllib.request.urlopen(f'http://127.0.0.1:{CDP_PORT}/json',timeout=10) as r:return json.load(r)
 class CDP:
  def __init__(self,url):
-  self.ws=websocket.create_connection(url,timeout=12,origin='http://localhost')
+  self.ws=websocket.create_connection(url,timeout=12,suppress_origin=True)
   self.seq=0
  def eval(self,expr,timeout=12,awaitPromise=True):
   self.seq+=1;n=self.seq;self.ws.settimeout(timeout)
