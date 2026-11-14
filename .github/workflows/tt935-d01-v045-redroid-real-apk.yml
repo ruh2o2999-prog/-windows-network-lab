@@ -1,0 +1,160 @@
+name: TT935 D01 real private V0.4.5 APK in native ARM64 ReDroid Android11
+on:
+  push:
+    branches: [tt935-arm32-native-guest-v01]
+    paths:
+      - '.github/workflows/tt935-v045-real-avd.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  isolated-private-android:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned cryptography
+        run: |
+          set -euo pipefail
+          python3 -m pip install -q 'cryptography==46.0.4'
+          python3 -m py_compile tt935-redroid/test_real_tt935_native.py
+      - name: Generate ephemeral RSA-3072 and publish ONLY public key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tt935-private-keys
+          chmod 700 /tmp/tt935-private-keys
+          python3 - <<'PY'
+          from cryptography.hazmat.primitives.asymmetric import rsa
+          from cryptography.hazmat.primitives import serialization
+          from pathlib import Path
+          r=Path('/tmp/tt935-private-keys')
+          k=rsa.generate_private_key(public_exponent=65537,key_size=3072)
+          (r/'receiver-private.pem').write_bytes(k.private_bytes(
+             serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
+          (r/'receiver-private.pem').chmod(0o600)
+          (r/'receiver-public.pem').write_bytes(k.public_key().public_bytes(
+             serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo))
+          PY
+          EXCHANGE="exchange/tt935-redroid-run-$GITHUB_RUN_ID"
+          mkdir -p "$EXCHANGE"
+          cp /tmp/tt935-private-keys/receiver-public.pem "$EXCHANGE/receiver-public.pem"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$EXCHANGE/receiver-public.pem"
+          git commit -m "ci(tt935): publish ephemeral public ONLY key for run $GITHUB_RUN_ID"
+          git push origin HEAD:tt935-arm32-native-guest-v01
+          echo "TT935_PUBKEY_READY_PATH=$EXCHANGE/receiver-public.pem"
+      - name: Receive encrypted transport and decrypt in ephemeral runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXCHANGE="exchange/tt935-redroid-run-$GITHUB_RUN_ID"
+          export EXCHANGE GITHUB_RUN_ID
+          for i in $(seq 1 170); do
+            git fetch -q origin '+refs/heads/tt935-arm32-native-guest-v01:refs/remotes/origin/tt935-arm32-native-guest-v01'
+            if git show "origin/tt935-arm32-native-guest-v01:$EXCHANGE/encrypted_transport.json" >/tmp/tt935-transport.json 2>/dev/null; then
+              break
+            fi
+            sleep 4
+          done
+          test -s /tmp/tt935-transport.json || { echo 'ENCRYPTED_PACKAGE_DELIVERY_TIMEOUT'; exit 23; }
+          python3 - <<'PY'
+          import base64,hashlib,json,pathlib,subprocess,os,urllib.parse,zipfile
+          from io import BytesIO
+          from cryptography.hazmat.primitives import hashes,serialization
+          from cryptography.hazmat.primitives.asymmetric import padding
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          m=json.loads(pathlib.Path('/tmp/tt935-transport.json').read_text())
+          trusted_sha='de6fb9acb39636d64ff9960f1f1e2d815e27a65d5a6ba28e2ca8f7e66232ed31'
+          trusted_run=f'tt935_v045_run_{os.environ["GITHUB_RUN_ID"]}'
+          assert m['schema']=='TT935-CI-ENCRYPTED-APKV1'
+          assert m['session']==trusted_run and m['source_sha256']==trusted_sha
+          url=m['encrypted_blob_url']
+          u=urllib.parse.urlparse(url)
+          assert u.scheme=='https' and u.hostname and u.hostname.startswith('sdmntpr') and u.hostname.endswith('.oaiusercontent.com') and u.username is None and u.port is None
+          # Download ciphertext only. Never echo signed URL or key.
+          subprocess.run(['curl','-fLSs','--retry','3','--retry-all-errors','--connect-timeout','20',
+            '--max-time','240',url,'-o','/tmp/tt935-v045-cipher.bin'],check=True)
+          cipher=pathlib.Path('/tmp/tt935-v045-cipher.bin').read_bytes()
+          assert len(cipher)==m['cipher_bytes'] and hashlib.sha256(cipher).hexdigest()==m['cipher_sha256']
+          priv=serialization.load_pem_private_key(
+            pathlib.Path('/tmp/tt935-private-keys/receiver-private.pem').read_bytes(),password=None)
+          key=priv.decrypt(base64.b64decode(m['keywrap_b64'],validate=True),
+            padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=None))
+          nonce=base64.b64decode(m['nonce_b64'],validate=True)
+          aad=json.dumps({'schema':m['schema'],'session':m['session'],
+            'source_sha256':trusted_sha},sort_keys=True,separators=(',',':')).encode()
+          apk=AESGCM(key).decrypt(nonce,cipher,aad)
+          assert len(apk)==m['source_bytes'] and hashlib.sha256(apk).hexdigest()==trusted_sha
+          with zipfile.ZipFile(BytesIO(apk)) as z:
+            assert z.testzip() is None and 'classes10.dex' in z.namelist()
+          pathlib.Path('/tmp/tt935-v045-private.apk').write_bytes(apk)
+          pathlib.Path('/tmp/tt935-v045-private.apk').chmod(0o600)
+          print('ENCRYPTED_APK_RESTORED_TEMPORARILY: sha256 verified, bytes=',len(apk))
+          PY
+          rm -f /tmp/tt935-v045-cipher.bin /tmp/tt935-transport.json
+      - name: Prepare BinderFS and native ARM64 ReDroid Android11
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/tt935-d01-redroid-real-apk
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder
+          sudo mkdir -p /dev/binderfs
+          sudo mount -t binder binder /dev/binderfs
+          sudo chmod 666 /dev/binderfs/binder /dev/binderfs/hwbinder /dev/binderfs/vndbinder
+          ls -l /dev/binderfs >out/tt935-d01-redroid-real-apk/binderfs.txt
+          sudo apt-get update -qq >out/tt935-d01-redroid-real-apk/apt.log 2>&1
+          sudo apt-get install -y -qq adb >>out/tt935-d01-redroid-real-apk/apt.log 2>&1
+          docker pull --platform linux/arm64 redroid/redroid:11.0.0-latest \
+             >out/tt935-d01-redroid-real-apk/pull.log 2>&1
+          docker image inspect redroid/redroid:11.0.0-latest \
+             --format 'ID={{.Id}} Arch={{.Architecture}} OS={{.Os}}' \
+             >out/tt935-d01-redroid-real-apk/image.txt
+          docker run -d --rm --privileged --platform linux/arm64 \
+            --name tt935-redroid-app \
+            -v /dev/binderfs:/dev/binderfs \
+            -p 127.0.0.1:5555:5555 \
+            redroid/redroid:11.0.0-latest \
+            androidboot.redroid_gpu_mode=guest >out/tt935-d01-redroid-real-apk/container_id.txt
+          boot=0
+          for i in $(seq 1 60); do
+            sleep 5
+            adb connect 127.0.0.1:5555 >out/tt935-d01-redroid-real-apk/adb_connect.txt 2>&1 || true
+            value=$(timeout 8 adb -s 127.0.0.1:5555 shell getprop sys.boot_completed 2>/dev/null || true)
+            echo "$i,$value" >>out/tt935-d01-redroid-real-apk/boot_progress.csv
+            if [ "$value" = 1 ]; then boot=1; break; fi
+            docker inspect -f '{{.State.Running}}' tt935-redroid-app 2>/dev/null | grep -q true || break
+          done
+          [ "$boot" = 1 ] || { docker logs --tail 200 tt935-redroid-app; exit 42; }
+          echo "REDDROID_NATIVE_ARM_BOOT_SUCCESS"
+      - name: Genuine TT935 V0.4.5 install, launch, process/ABI, UI and crash test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tt935-redroid/test_real_tt935_native.py
+      - name: Container diagnostic tail and cleanup
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p out/tt935-d01-redroid-real-apk
+          docker logs --tail 450 tt935-redroid-app \
+             >out/tt935-d01-redroid-real-apk/container_logs.txt 2>&1 || true
+          docker rm -f tt935-redroid-app >/dev/null 2>&1 || true
+      - name: Purge ephemeral private key and APK plaintext
+        if: always()
+        run: |
+          rm -f /tmp/tt935-v045-private.apk /tmp/tt935-v045-cipher.bin /tmp/tt935-transport.json /tmp/tt935-private-keys/receiver-private.pem
+      - name: Upload filtered evidence only, never source APK or secret
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-D01-V045-real-private-APK-native-ARM11-evidence
+          path: out/tt935-d01-redroid-real-apk/
+          if-no-files-found: warn
+          retention-days: 28
