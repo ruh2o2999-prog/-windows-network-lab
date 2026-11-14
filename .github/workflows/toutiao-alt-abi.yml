@@ -1,0 +1,65 @@
+name: Toutiao alternate ARM32 emulators API30x86 Playstore API31
+on:
+  push:
+    branches: [toutiao-dynamic-probe]
+    paths: [.github/workflows/toutiao-alt-abi.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: A11x86GoogleApis, api: 30, target: google_apis, arch: x86}
+          - {name: A11x64PlayStore, api: 30, target: google_apis_playstore, arch: x86_64}
+          - {name: A12x64GoogleApis, api: 31, target: google_apis, arch: x86_64}
+    name: ${{ matrix.name }}
+    steps:
+      - name: Fetch isolated and validated APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence apk
+          curl -fsSL --retry 2 --max-time 190 -o /tmp/toutiao_test.zip 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-361c-81f4-b478-75f4fd029e17/raw?se=2026-11-14T14%3A35%3A24Z&sp=r&sv=2026-06-06&sr=b&scid=63023ab5-2eb3-5dc2-9ddb-0c122d427640&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-14T10%3A21%3A12Z&ske=2026-11-15T10%3A21%3A12Z&sks=b&skv=2026-06-06&sig=OiSBIXizxo4J1kcFU9kpRZWnxwo5wYPt2PEMDPrLyWI%3D'
+          unzip -P 5618 -j -o /tmp/toutiao_test.zip '*.apk' -d apk
+          sha256sum apk/*.apk | tee evidence/apk-hash.txt
+          test "$(sha256sum apk/*.apk | cut -d' ' -f1)" = "e02f837f096cb2076f2adfaea0c1132755328c36c89df99f6aa45dc498b3d3a0"
+          cp apk/*.apk /tmp/toutiao_test.apk
+      - name: KVM
+        run: if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Android alternate ARM32 runtime
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: ${{ matrix.arch }}
+          profile: pixel_2
+          ram-size: 3072M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb shell getprop | grep -E 'ro.build.version.sdk|ro.dalvik.vm.native.bridge|ro.product.cpu.abilist|sys.boot_completed' | tee evidence/bridge.txt
+            adb logcat -c
+            adb install -r /tmp/toutiao_test.apk | tee evidence/install.txt
+            adb shell monkey -p com.ss.android.article.news -c android.intent.category.LAUNCHER 1 | tee evidence/start.txt
+            adb shell sleep 12
+            adb shell pidof com.ss.android.article.news | tee evidence/pid.txt
+            adb shell dumpsys activity activities > evidence/activities.txt
+            adb logcat -d -v threadtime > evidence/runtime-logcat.txt
+            adb exec-out screencap -p > evidence/screen.png
+            adb shell uiautomator dump /sdcard/window.xml
+            adb pull /sdcard/window.xml evidence/window.xml
+      - name: Upload evidence regardless of failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toutiao-alt-${{ matrix.name }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 3
