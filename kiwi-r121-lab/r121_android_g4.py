@@ -110,6 +110,20 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
    time.sleep(0.4)
   gate("R121-09_real_network_requests",Fixture.hits>=20,{"actualHttpRequests":Fixture.hits})
   gate("R121-10_bounded_active_count",c.get("activeCount",999)<=2,{"activeCount":c.get("activeCount")})
+  # R126 concentrated G3 functional node; the already-proved 256MiB pressure
+  # and historic R122-07/08 soak are NOT rerun by this scoped workflow.
+  import sys
+  sys.path.insert(0,str(Path('kiwi-r126-lab').absolute()))
+  from r126_android_pause_g3 import execute as r126_execute
+  result126=r126_execute(run,snapshot,state,ws,tid,extid,fixture_url,Fixture,
+      type_internal_url,find_extensions_via_kiwi_menu,OUT)
+  report["r126"]={"gates":result126.get("gates"),"errors":result126.get("errors")}
+  report["gates"]["R121-13_1h_soak"]={"status":"NOT_RUN","evidence":"R126 focus is controls; user's one-hour criterion pending"}
+  report["gates"]["R121-14_Android16"]={"status":"NOT_RUN","evidence":"Android 11 only"}
+  report["gates"]["R122-07_240s_status"]={"status":"OPEN","evidence":"historical R125 G3 failed; scoped R126 run does not re-test"}
+  report["gates"]["R122-08_240s_storage"]={"status":"OPEN","evidence":"historical R125 G3 failed; scoped R126 run does not re-test"}
+  host.shutdown()
+  return report
   # Real extension-origin OPFS stress: write 260 MiB from 4MiB chunks, verify
   # storage.estimate crossing R121 256MiB soft gate; cleanup ONLY our file.
   # This is separate from all existing original OPFS/WAL journal data.
