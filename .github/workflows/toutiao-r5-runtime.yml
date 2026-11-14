@@ -1,0 +1,62 @@
+name: Toutiao R5 runtime and ARM32 smoke
+on:
+  push:
+    branches: [toutiao-dynamic-probe]
+    paths: [.github/workflows/toutiao-r5-runtime.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  r5-android11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Fetch authorized experimental R5 APK archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence apk
+          curl -sSL --fail --retry 2 --max-time 190 -o /tmp/r5.zip 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-f338-81f4-9344-ae6dff09c8e4/raw?se=2026-11-14T14%3A17%3A30Z&sp=r&sv=2026-06-06&sr=b&scid=648c5851-44fb-5e9c-ab23-6f2ecc0dc8ef&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-14T09%3A09%3A41Z&ske=2026-11-15T09%3A09%3A41Z&sks=b&skv=2026-06-06&sig=PZyYkqGiN4KpwysV%2BxnsVQZbwaQX9B8vywuGe1XsqJk%3D'
+          echo 'c97cd70f25c8ef8d3296ef262792d58b302f8e3ef9e89b9500d1f1c552f6153a  /tmp/r5.zip' | sha256sum -c - | tee evidence/transfer-hash.txt
+          unzip -P '5618' -j -o /tmp/r5.zip '*.apk' -d apk/
+          sha256sum apk/*.apk | tee evidence/apk-hash.txt
+          test "$(sha256sum apk/*.apk | cut -d' ' -f1)" = "13e22f5f2bfacf90a510eb10e068a8e5dd96ddd861cbf9bd4cf4702b8a084644"
+          cp apk/*.apk /tmp/toutiao_r5.apk
+          echo 'APK_READY=true' | tee evidence/transfer-result.txt
+      - name: KVM enable
+        shell: bash
+        run: |
+          ls -l /dev/kvm || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Install and launch real Toutiao R5 Android11 ARM bridge
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 3072M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb shell getprop | grep -E 'ro.product.cpu.abilist|ro.dalvik.vm.native.bridge|sys.boot_completed' | tee evidence/bridge.txt
+            adb install -r /tmp/toutiao_r5.apk | tee evidence/install.txt
+            adb logcat -c
+            adb shell monkey -p com.ss.android.article.news -c android.intent.category.LAUNCHER 1 | tee evidence/start.txt
+            adb shell sleep 12
+            adb shell pidof com.ss.android.article.news | tee evidence/pid.txt
+            adb shell dumpsys activity activities > evidence/activities.txt
+            adb logcat -d -v threadtime > evidence/r5-logcat.txt
+            adb exec-out screencap -p > evidence/r5-screen.png
+            adb shell uiautomator dump /sdcard/window.xml
+            adb pull /sdcard/window.xml evidence/window.xml
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toutiao-r5-android11-dynamic
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 3
