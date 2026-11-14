@@ -151,9 +151,10 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
   # R122: genuine four-minute recurring traffic and native Android PSS samples.
   # Do not reinterpret it as the separate 24h acceptance requirement.
   import sys
+  sys.path.insert(0,str(Path('kiwi-r125-lab').absolute()))
   sys.path.insert(0,str(Path('kiwi-r122-lab').absolute()))
   from r122_soak_probe import execute as r122_execute
-  r122_result=r122_execute(run,ws,tid,Fixture,OUT,state,seconds=240,interval=15)
+  r122_result=r122_execute(run,ws,tid,Fixture,OUT,state,seconds=300,interval=15)
   report["r122"]={"summary":r122_result.get("summary"),"gates":r122_result.get("gates")}
   report["gates"]["R121-13_24h_soak"]={"status":"NOT_RUN","evidence":"short bounded 256MiB pressure test is not 24h stability proof"}
   report["gates"]["R121-14_Android16"]={"status":"NOT_RUN","evidence":"only official Kiwi Android11 x86_64 emulator tested"}
