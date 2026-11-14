@@ -115,7 +115,7 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any,find_ex
   import sys
   sys.path.insert(0,str(Path('kiwi-r126-lab').absolute()))
   from r126_android_pause_g3 import execute as r126_execute
-  result126=r126_execute(run,snapshot,state,ws,tid,extid,fixture_url,Fixture,
+  result126=r126_execute(run,snapshot,state,ws,tid,extid,"http://127.0.0.1:18766/",Fixture,
       type_internal_url,find_extensions_via_kiwi_menu,OUT)
   report["r126"]={"gates":result126.get("gates"),"errors":result126.get("errors")}
   report["gates"]["R121-13_1h_soak"]={"status":"NOT_RUN","evidence":"R126 focus is controls; user's one-hour criterion pending"}
