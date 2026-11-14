@@ -30,7 +30,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
-            set -euxo pipefail
+            set -eux
             mkdir -p evidence
             for p in ro.build.version.release ro.build.version.sdk ro.product.cpu.abilist ro.product.cpu.abilist32 ro.dalvik.vm.native.bridge ro.enable.native.bridge sys.boot_completed; do
               echo "===== $p =====" | tee -a evidence/bridge.txt
