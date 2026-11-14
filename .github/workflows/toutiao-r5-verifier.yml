@@ -1,0 +1,54 @@
+name: Toutiao R5 verifier repair Android11 evidence
+on:
+  push:
+    branches: [toutiao-dynamic-probe]
+    paths: [.github/workflows/toutiao-r5-verifier.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Download isolated test APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence apk
+          curl -fsSL --retry 2 --max-time 190 -o /tmp/test.zip 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-e834-81f4-af34-c331ea2cc718/raw?se=2026-11-14T14%3A26%3A37Z&sp=r&sv=2026-06-06&sr=b&scid=7a71a8ed-e112-5b7b-a9f1-5a01c3b9abcc&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-14T09%3A08%3A37Z&ske=2026-11-15T09%3A08%3A37Z&sks=b&skv=2026-06-06&sig=1m4khox2kMTs4NRCT65AvORUkI11UShPff7M3LmoqPQ%3D'
+          unzip -P 5618 -j -o /tmp/test.zip '*.apk' -d apk
+          sha256sum apk/*.apk | tee evidence/apk-hash.txt
+          test "$(sha256sum apk/*.apk | cut -d' ' -f1)" = "e02f837f096cb2076f2adfaea0c1132755328c36c89df99f6aa45dc498b3d3a0"
+          cp apk/*.apk /tmp/toutiao_verifier_test.apk
+      - name: Enable KVM
+        run: if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Real ART verifier and startup (disposable test signature)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 3072M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb logcat -c
+            adb install -r /tmp/toutiao_verifier_test.apk | tee evidence/install.txt
+            adb logcat -d -v threadtime > evidence/dex-verify-install.txt
+            adb shell monkey -p com.ss.android.article.news -c android.intent.category.LAUNCHER 1 | tee evidence/start.txt
+            adb shell sleep 8
+            adb shell pidof com.ss.android.article.news | tee evidence/pid.txt
+            adb logcat -d -v threadtime > evidence/full-logcat.txt
+            adb exec-out screencap -p > evidence/screen.png
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toutiao-r5-verifier-repair-evidence
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 3
