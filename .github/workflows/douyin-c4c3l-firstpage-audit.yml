@@ -1,0 +1,57 @@
+name: Douyin C4C3L Read-Only Android11 First-Page Author Audit
+on:
+  push:
+    branches: [douyin-c4c3l-firstpage-audit-20261114]
+    paths:
+      - '.github/workflows/douyin-c4c3l-firstpage-audit.yml'
+      - 'c4c3l_public_probe/C4C3L_public_probe.zip.b64'
+permissions:
+  contents: read
+jobs:
+  android11-firstpage-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify public research payload, no production APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p c4c3l_exp
+          base64 -d c4c3l_public_probe/C4C3L_public_probe.zip.b64 > c4c3l_exp/payload.zip
+          echo '6cc1e7fb1b1ac6b3a4649c93741bd7ff83bfc94bc0e82d353dd163e80baeb672  c4c3l_exp/payload.zip' | sha256sum -c -
+          unzip -q c4c3l_exp/payload.zip -d c4c3l_exp
+          (cd c4c3l_exp && sha256sum -c SHA256SUMS.txt)
+          node --check c4c3l_exp/src/cdp_firstparty_audit.mjs
+          node c4c3l_exp/src/pager_rules.mjs
+          bash -n c4c3l_exp/run_android11.sh
+          test -s c4c3l_exp/C4C3_Android11_Research.apk
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: One real Android11 WebView read-only first-page experiment
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash c4c3l_exp/run_android11.sh
+      - name: Retain original Android logs and independent business verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: douyin-c4c3l-android11-firstpage-author-audit
+          path: c4c3l_results/
+          retention-days: 14
+          if-no-files-found: warn
