@@ -42,8 +42,13 @@ def tap_match(xml,keys,label,exact=False):
  for n in nodes:
   a=n.attrib
   if a.get('enabled')=='false':continue
-  val=(a.get('text','')+' '+a.get('content-desc','')).strip()
-  if not val or (exact and not any(k.lower()==val.lower() for k in keys)) or (not exact and not any(k.lower() in val.lower() for k in keys)):continue
+  labels=[a.get('text','').strip(),a.get('content-desc','').strip()]
+  labels=[x for x in labels if x]
+  val=' | '.join(dict.fromkeys(labels))
+  if not labels:continue
+  if exact:
+   if not any(k.casefold()==item.casefold() for k in keys for item in labels):continue
+  elif not any(k.casefold() in item.casefold() for k in keys for item in labels):continue
   m=re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',a.get('bounds',''))
   if not m:continue
   x1,y1,x2,y2=map(int,m.groups())
