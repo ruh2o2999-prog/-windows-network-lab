@@ -1,0 +1,1 @@
+Frozen R126 MV2 ZIP SHA256 d22a01424b6992f19145479505b05ebefdfcf356a8275e2f62d66da4d36d306d; real Android installation, actual UI clicks and restart; single ciphertext file. R122-07/08 remain OPEN; one-hour soak remains NOT_RUN.
