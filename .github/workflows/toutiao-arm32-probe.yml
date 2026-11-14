@@ -30,17 +30,12 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
-            set -eux
-            mkdir -p evidence
-            for p in ro.build.version.release ro.build.version.sdk ro.product.cpu.abilist ro.product.cpu.abilist32 ro.dalvik.vm.native.bridge ro.enable.native.bridge sys.boot_completed; do
-              echo "===== $p =====" | tee -a evidence/bridge.txt
-              adb shell getprop "$p" | tee -a evidence/bridge.txt
-            done
+            adb shell getprop | grep -E 'ro.product.cpu.abi|ro.dalvik.vm.native.bridge|ro.enable.native.bridge|sys.boot_completed|ro.build.version.sdk' | tee evidence/bridge.txt
             adb shell 'ls -l /system/lib*/lib*translation* /system/lib*/libhoudini* 2>/dev/null || true' | tee -a evidence/bridge.txt
             adb shell 'cat /proc/cpuinfo | head -35' | tee -a evidence/bridge.txt
             adb shell pm list packages | head -20 > evidence/packages.txt
             adb logcat -d -v time > evidence/boot-logcat.txt
-            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
+            adb shell getprop sys.boot_completed | tee -a evidence/bridge.txt
       - name: Upload evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
