@@ -102,7 +102,7 @@ class CDP:
 def select_targets():
  items=cdp_targets()
  ext=[x for x in items if (x.get('url') or '').startswith('chrome-extension://')]
- bg=[x for x in ext if x.get('type') in ('background_page','page') and ('_generated_background_page' in x.get('url','') or x.get('type')=='background_page')]
+ bg=[x for x in ext if '_generated_background_page' in x.get('url','') or x.get('type')=='background_page']
  return items,ext,bg
 
 def import_extension():
