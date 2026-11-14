@@ -1,0 +1,124 @@
+name: Kiwi R136 native-ACK and ADB-screen Android11 420s single-file secured handoff
+on:
+  push:
+    branches: [kiwi-r136-unified-g3-20261114]
+    paths:
+      - '.github/workflows/kiwi-r136-unified-g3.yml'
+      - 'kiwi-r136-g3/ci/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  r136-screen-android420:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preflight source and setup evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet websocket-client pillow
+          python3 -m py_compile kiwi-r136-g3/ci/r136_android_g3.py kiwi-android-lab/download_kiwi.py
+          mkdir -p kiwi-r136-g3/out out
+      - name: Publish one-time public certificate only
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:3072 \
+            -keyout /tmp/r136-one-private.pem -out /tmp/r136-one-cert.pem \
+            -sha256 -days 1 -nodes -subj '/CN=KiwiR136SingleFile/' >/dev/null 2>&1
+          chmod 600 /tmp/r136-one-private.pem
+          ITEM="exchange/r136-screen-${GITHUB_RUN_ID}.crt"
+          mkdir -p exchange
+          cp /tmp/r136-one-cert.pem "$ITEM"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$ITEM"
+          git commit -m "ci(r136-single): publish single-use certificate ${GITHUB_RUN_ID} [skip ci]"
+          git push origin HEAD:kiwi-r136-unified-g3-20261114
+          echo "R136_SINGLE_PUBLIC_CERT_READY=$ITEM"
+      - name: Receive ONE sealed file, decrypt in runner, verify frozen hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="exchange/r136-screen-${GITHUB_RUN_ID}.p7m.b64"
+          FOUND=0
+          for attempt in $(seq 1 180); do
+            git fetch -q origin '+refs/heads/kiwi-r136-unified-g3-20261114:refs/remotes/origin/kiwi-r136-unified-g3-20261114'
+            if git show "origin/kiwi-r136-unified-g3-20261114:${FILE}" > /tmp/r136-one.p7m.b64 2>/dev/null; then
+              FOUND=1; break
+            fi
+            sleep 4
+          done
+          test "$FOUND" = 1 || { echo R136_SINGLEFILE_TRANSFER_TIMEOUT; exit 23; }
+          base64 -d /tmp/r136-one.p7m.b64 > /tmp/r136-one.p7m
+          mkdir -p kiwi-r136-g3/assets
+          openssl cms -decrypt -binary -inform DER -in /tmp/r136-one.p7m \
+            -recip /tmp/r136-one-cert.pem -inkey /tmp/r136-one-private.pem \
+            -out kiwi-r136-g3/assets/Kiwi_R136_test.zip
+          echo '211bfcc34416e300bcb3cd889b678b25f6f3c8741db439bffc8f1162f208daef  kiwi-r136-g3/assets/Kiwi_R136_test.zip' | sha256sum -c -
+          python3 - <<'PY'
+          import json,zipfile,pathlib,hashlib
+          p=pathlib.Path('kiwi-r136-g3/assets/Kiwi_R136_test.zip')
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['manifest_version']==2 and m['version']=='0.4.59' and m.get('version_name')=='rc16-r136'
+              assert len(z.namelist())==106
+          print('R136_SINGLEFILE_ZIP_VERIFIED',p.stat().st_size,hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+          rm -f /tmp/r136-one.p7m /tmp/r136-one.p7m.b64 /tmp/r136-one-private.pem
+      - name: Download pinned official Kiwi x64 directly without releases API
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          URL="https://github.com/kiwibrowser/src.next/releases/download/14310011181/com.kiwibrowser.browser-x64-14310011181-github.apk"
+          curl -fSL --retry 4 --retry-delay 5 --connect-timeout 30 --max-time 720 \
+            "$URL" -o kiwi-r136-g3/kiwi-official-x64.apk
+          echo '38a5e730b114fa508bafe75ca57e27a3ed923c9bf3b05d91c1273dd8d9fc18e2  kiwi-r136-g3/kiwi-official-x64.apk' | sha256sum -c -
+          python3 - <<'PYAPK'
+          import hashlib, pathlib, json, zipfile
+          p=pathlib.Path('kiwi-r136-g3/kiwi-official-x64.apk')
+          with zipfile.ZipFile(p) as z: assert 'AndroidManifest.xml' in z.namelist()
+          result={'source':'official kiwibrowser/src.next release tag 14310011181 x64 github apk',
+                  'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+          pathlib.Path('out/official_apk_manifest.json').write_text(json.dumps(result,indent=2))
+          print('R136_OFFICIAL_KIWI_DIRECT_ASSET_VERIFIED',result)
+          PYAPK
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm || true
+      - name: REAL Kiwi Android 11 420-second business verification
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-r136-g3/ci/r136_android_g3.py
+      - name: Remove all temporary plaintext and keys
+        if: always()
+        shell: bash
+        run: |
+          rm -f kiwi-r136-g3/assets/Kiwi_R136_test.zip kiwi-r136-g3/kiwi-official-x64.apk
+          rm -f /tmp/r136-one.p7m /tmp/r136-one.p7m.b64 /tmp/r136-one-private.pem /tmp/r136-one-cert.pem
+      - name: Preserve only verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r136-screen-native-android420-evidence
+          path: |
+            kiwi-r136-g3/out/
+            out/official_apk_manifest.json
+            out/official_apk_download_error.json
+          if-no-files-found: warn
