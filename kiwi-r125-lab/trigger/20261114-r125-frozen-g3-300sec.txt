@@ -1,0 +1,1 @@
+R125 frozen SHA256 965952e8e7a8ba68cab4f35656f7ef29caa5fdf2817d53de89a8315d72037b7e. Single-file encrypted session transfer. G2 passed; R122-07/08 strict criteria unchanged. Android11 genuine Kiwi only; 24h and Android16 still NOT_RUN.
