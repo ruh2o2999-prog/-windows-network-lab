@@ -88,6 +88,21 @@ def execute(run,snapshot,state,type_internal_url,tap_target,tap_text_any):
   gate("R121-07_passive_safety_no_active_requests",p.get("observedDocuments",0)>=1 and "CSP_NOT_OBSERVED" in codes and "NOSNIFF_NOT_OBSERVED" in codes and p.get("activeRequestsSent")==0,p)
   limits=c.get("limits",{})
   gate("R121-08_resource_cap_live_status",limits.get("maxEnhancedTabs")==2 and limits.get("maxCdpBodyBytes")==2097152 and limits.get("maxCdpSessionBytes")==50331648,{"limits":limits,"storage":c.get("storage")})
+  # R124 new direct heartbeat must reply even while original storage is restoring.
+  heartbeat_js="""(async()=>new Promise((resolve,reject)=>{
+    let timeout=setTimeout(()=>reject(Error('R124_HEALTH_TIMEOUT')),5000);
+    chrome.runtime.sendMessage({type:'R124_HEALTH'},r=>{
+      clearTimeout(timeout);
+      if(chrome.runtime.lastError)reject(Error(chrome.runtime.lastError.message));
+      else resolve(r);
+    });
+  }))()"""
+  try:
+   heartbeat=cdp_eval(ws,heartbeat_js,timeout=10)
+   gate("R124-01_direct_background_health",isinstance(heartbeat,dict) and heartbeat.get("ok") is True and heartbeat.get("protocol")=="r124-health-v1" and isinstance(heartbeat.get("respondedAt"),(float,int)),{"heartbeat":heartbeat})
+  except Exception as exc:
+   gate("R124-01_direct_background_health",False,{"error":repr(exc)})
+
   # Wait for actual real browser fixture requests; do not falsely fail because
   # fast core diagnostics succeeded after only ~1 second.
   for _ in range(75):
