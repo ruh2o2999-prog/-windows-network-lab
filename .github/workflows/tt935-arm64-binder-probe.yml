@@ -1,0 +1,56 @@
+name: TT935 D01 ARM64 runner Linux binder module feasibility
+on:
+  push:
+    branches: [tt935-arm32-native-guest-v01]
+    paths:
+      - '.github/workflows/tt935-arm64-binder-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  binder-native-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 8
+    steps:
+      - name: Probe ability to run Android container on native ARM64 via binder module
+        shell: bash
+        run: |
+          set -u
+          mkdir -p out/tt935-d01-arm64-binder
+          uname -a >out/tt935-d01-arm64-binder/host.txt
+          grep binder /proc/filesystems >out/tt935-d01-arm64-binder/filesystems.txt 2>&1
+          echo "FILESYSTEM_SEARCH_RETURN=$?" >>out/tt935-d01-arm64-binder/filesystems.txt
+          sudo modprobe binder_linux devices=binder,hwbinder,vndbinder >out/tt935-d01-arm64-binder/modprobe.log 2>&1
+          echo "BINDER_MODPROBE_RETURN=$?" >>out/tt935-d01-arm64-binder/modprobe.log
+          ls -lah /dev/binder* >out/tt935-d01-arm64-binder/devices.txt 2>&1
+          echo "LS_DEVICES_RETURN=$?" >>out/tt935-d01-arm64-binder/devices.txt
+          cat /proc/filesystems >out/tt935-d01-arm64-binder/all_filesystems.txt
+          sudo mkdir -p /dev/binderfs
+          sudo mount -t binder binder /dev/binderfs >out/tt935-d01-arm64-binder/mount.log 2>&1
+          echo "BINDERFS_MOUNT_RETURN=$?" >>out/tt935-d01-arm64-binder/mount.log
+          ls -lah /dev/binderfs >out/tt935-d01-arm64-binder/binderfs_contents.txt 2>&1
+          echo "LIST_RETURN=$?" >>out/tt935-d01-arm64-binder/binderfs_contents.txt
+          grep -E 'CONFIG_ANDROID_BINDER|CONFIG_ASHMEM' "/boot/config-$(uname -r)" >out/tt935-d01-arm64-binder/kernel_binder_config.txt 2>&1
+          echo "KERNEL_CONFIG_RETURN=$?" >>out/tt935-d01-arm64-binder/kernel_binder_config.txt
+          docker info --format '{{.Architecture}}' >out/tt935-d01-arm64-binder/docker_arch.txt 2>&1
+          echo "DOCKER_RETURN=$?" >>out/tt935-d01-arm64-binder/docker_arch.txt
+          python3 - <<'PY'
+          import pathlib,json
+          p=pathlib.Path('out/tt935-d01-arm64-binder')
+          m=(p/'modprobe.log').read_text()
+          mount=(p/'mount.log').read_text()
+          def ok(txt,name):return name+'=0' in txt
+          r={'arm64_native':True,'binder_modprobe_success':ok(m,'BINDER_MODPROBE_RETURN'),
+             'binderfs_mount_success':ok(mount,'BINDERFS_MOUNT_RETURN'),
+             'device_list':(p/'devices.txt').read_text()[:500]}
+          (p/'result.json').write_text(json.dumps(r,indent=2))
+          print('BINDER_PROBE='+json.dumps(r))
+          PY
+      - name: Upload independent native ARM container evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt935-D01-ARM64-binder-feasibility
+          path: out/tt935-d01-arm64-binder/
+          if-no-files-found: warn
+          retention-days: 28
