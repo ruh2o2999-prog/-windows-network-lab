@@ -12,6 +12,7 @@ import statistics
 import time
 from pathlib import Path
 from r109_history_recovery import cdp_eval
+from r125_diagnostic_probe import annotate_sample, evaluate_diagnostic_gates
 
 PKG = 'com.kiwibrowser.browser'
 SOFT_LIMIT = 268435456
@@ -133,10 +134,10 @@ def evaluate_gates(samples, http_delta, actual_elapsed, seconds):
     return {k: {'status': 'PASS' if ok else 'FAIL', 'evidence': evidence} for k, (ok, evidence) in result.items()}
 
 
-def execute(run, ws, tab_id, fixture, out, state, seconds=240, interval=15, cdp=cdp_eval):
+def execute(run, ws, tab_id, fixture, out, state, seconds=300, interval=15, cdp=cdp_eval):
     """Run only within real Android Kiwi runner; no simulated PASS written here."""
     out = Path(out);out.mkdir(parents=True, exist_ok=True)
-    report = {'name': 'R123 candidate / R122 native bounded soak', 'scope': 'official Kiwi Android 11, controlled localhost only',
+    report = {'name': 'R123 candidate / R122 native bounded soak', 'scope': 'official Kiwi Android 11, controlled localhost only - R125',
               'secondsRequested': seconds, 'sampleInterval': interval, 'samples': [], 'errors': [],
               'notClaimed': ['R121-13 24-hour soak', 'Android16 ARM64', 'zero memory leaks proven']}
     t0 = time.monotonic(); h0 = fixture.hits
@@ -157,6 +158,7 @@ def execute(run, ws, tab_id, fixture, out, state, seconds=240, interval=15, cdp=
         if probe['cdpOk']:
             s.update(status_fields(probe['status']))
         s.update({k:v for k,v in probe.items() if k != 'status'})
+        annotate_sample(s,ws,cdp,n)
         report['samples'].append(s)
         print('R123_NATIVE_SAMPLE', json.dumps({k:s.get(k) for k in ('sample','elapsedSec','pssKiB','fixtureHttpHits','cdpOk','mode','storageUsage','storagePressure','errorClass')},ensure_ascii=False),flush=True)
     elapsed = time.monotonic()-t0
@@ -168,6 +170,7 @@ def execute(run, ws, tab_id, fixture, out, state, seconds=240, interval=15, cdp=
         'statusErrors':sum(not s.get('cdpOk') for s in report['samples']),
         'classifications': sorted(set(s.get('errorClass') for s in report['samples'] if s.get('errorClass')))}
     report['gates'] = evaluate_gates(report['samples'],fixture.hits-h0,elapsed,seconds)
+    report['gates'].update(evaluate_diagnostic_gates(report['samples']))
     for k,v in report['gates'].items():
         state['gates'][k] = {'status':v['status'], 'detail':json.dumps(v['evidence'],ensure_ascii=False)[:1700]}
         print('R123_'+v['status']+' '+k+' '+json.dumps(v['evidence'],ensure_ascii=False)[:400],flush=True)
