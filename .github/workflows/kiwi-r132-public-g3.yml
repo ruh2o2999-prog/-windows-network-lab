@@ -1,0 +1,120 @@
+name: Kiwi R132 official Android 11 300s G3 encrypted transfer
+on:
+  push:
+    branches: [kiwi-r132-public-g3-20261114]
+    paths:
+      - '.github/workflows/kiwi-r132-public-g3.yml'
+      - 'kiwi-r132-g3/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  real-kiwi-r131-g3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare verified crypto and R132 harness
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet 'cryptography==46.0.4' websocket-client
+          python3 -m py_compile kiwi-r104-lab/segmented_private_transfer.py kiwi-r132-g3/ci/r132_android_g3.py
+          mkdir -p kiwi-r132-g3/out
+      - name: Generate one-run RSA private key; publish ONLY public key
+        run: |
+          set -euo pipefail
+          python3 kiwi-r104-lab/segmented_private_transfer.py keygen --out /tmp/r132-keys > /tmp/r132-keygen.json
+          PUB="exchange/r132-run-${GITHUB_RUN_ID}/receiver-public.pem"
+          mkdir -p "$(dirname "$PUB")"
+          cp /tmp/r132-keys/receiver-public.pem "$PUB"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$PUB"
+          git commit -m "ci(r132): publish ephemeral receiver PUBLIC key ${GITHUB_RUN_ID} [skip ci]"
+          git push origin HEAD:kiwi-r132-public-g3-20261114
+          echo "R132_PUBLIC_RECEIVER_KEY_READY=$PUB"
+      - name: Receive sealed parts, authenticate, restore exactly R131
+        shell: bash
+        run: |
+          set -euo pipefail
+          RDIR="exchange/r132-run-${GITHUB_RUN_ID}"
+          export RDIR GITHUB_RUN_ID
+          for attempt in $(seq 1 150); do
+            git fetch -q origin '+refs/heads/kiwi-r132-public-g3-20261114:refs/remotes/origin/kiwi-r132-public-g3-20261114'
+            if git show "origin/kiwi-r132-public-g3-20261114:${RDIR}/manifest.json" > /tmp/r132-manifest.json 2>/dev/null; then
+              break
+            fi
+            sleep 4
+          done
+          test -s /tmp/r132-manifest.json || { echo 'R132_SEGMENTED_TRANSPORT_TIMEOUT'; exit 23; }
+          mkdir -p /tmp/r132-assembled
+          python3 - <<'PY'
+          import base64, json, os, pathlib, subprocess
+          m=json.loads(pathlib.Path('/tmp/r132-manifest.json').read_text())
+          root='origin/kiwi-r132-public-g3-20261114:'+os.environ['RDIR']+'/'
+          out=pathlib.Path('/tmp/r132-assembled')
+          (out/'manifest.json').write_text(json.dumps(m))
+          for p in m['parts']:
+              for name in (p['filename'],p['key_filename']):
+                  b=subprocess.check_output(['git','show',root+name+'.b64'],timeout=15)
+                  (out/name).write_bytes(base64.b64decode(b.strip(),validate=True))
+          print('R132_SEALED_PARTS_RECEIVED',len(m['parts']))
+          PY
+          python3 kiwi-r104-lab/segmented_private_transfer.py restore \
+            --bundle /tmp/r132-assembled \
+            --private-key /tmp/r132-keys/receiver-private.pem \
+            --output kiwi-r132-g3/assets/Kiwi_R131_frozen.zip \
+            --expected-sha256 ce1624f9c315aae91a34f009c3e13e885e1d0c9471ddcc7ef75e6658778d728c \
+            --expected-session "r132_run_${GITHUB_RUN_ID}" > /tmp/r132-restore.json
+          python3 - <<'PY'
+          import json,zipfile,hashlib,pathlib
+          p=pathlib.Path('kiwi-r132-g3/assets/Kiwi_R131_frozen.zip')
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['manifest_version']==2 and m['version']=='0.4.59' and m.get('version_name')=='rc12-r131'
+              assert len(z.namelist())==101
+          print('R132_REAL_R131_PACKAGE_VERIFIED',hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+      - name: Fetch pinned official Kiwi x64 APK
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 kiwi-android-lab/download_kiwi.py
+          cp kiwi-official-x64.apk kiwi-r132-g3/kiwi-official-x64.apk
+          echo '38a5e730b114fa508bafe75ca57e27a3ed923c9bf3b05d91c1273dd8d9fc18e2  kiwi-r132-g3/kiwi-official-x64.apk' | sha256sum -c -
+      - name: Enable Android /dev/kvm
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm || true
+      - name: REAL Android11 Kiwi 300 sec R131 gate
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-r132-g3/ci/r132_android_g3.py
+      - name: Remove local plaintext and temporary secrets
+        if: always()
+        run: |
+          rm -f kiwi-r132-g3/assets/Kiwi_R131_frozen.zip kiwi-r132-g3/kiwi-official-x64.apk
+          rm -f /tmp/r132-keys/receiver-private.pem /tmp/r132-restore.json /tmp/r132-keygen.json
+          rm -rf /tmp/r132-assembled /tmp/r132-manifest.json
+      - name: Save real Android evidence without private plugin bytes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r132-official-android300-evidence
+          path: |
+            kiwi-r132-g3/out/
+            out/official_apk_manifest.json
+            out/official_apk_download_error.json
+          if-no-files-found: warn
