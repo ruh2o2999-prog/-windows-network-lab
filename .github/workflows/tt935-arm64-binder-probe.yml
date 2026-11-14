@@ -15,6 +15,7 @@ jobs:
       - name: Probe ability to run Android container on native ARM64 via binder module
         shell: bash
         run: |
+          set +e
           set -u
           mkdir -p out/tt935-d01-arm64-binder
           uname -a >out/tt935-d01-arm64-binder/host.txt
