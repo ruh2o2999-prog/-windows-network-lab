@@ -71,14 +71,24 @@ jobs:
           print('R132_SINGLEFILE_ZIP_VERIFIED',p.stat().st_size,hashlib.sha256(p.read_bytes()).hexdigest())
           PY
           rm -f /tmp/r132-one.p7m /tmp/r132-one.p7m.b64 /tmp/r132-one-private.pem
-      - name: Download pinned official Kiwi x64
+      - name: Download pinned official Kiwi x64 directly without releases API
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p out
-          python3 kiwi-android-lab/download_kiwi.py
-          cp kiwi-official-x64.apk kiwi-r132-g3/kiwi-official-x64.apk
+          URL="https://github.com/kiwibrowser/src.next/releases/download/14310011181/com.kiwibrowser.browser-x64-14310011181-github.apk"
+          curl -fSL --retry 4 --retry-delay 5 --connect-timeout 30 --max-time 720 \
+            "$URL" -o kiwi-r132-g3/kiwi-official-x64.apk
           echo '38a5e730b114fa508bafe75ca57e27a3ed923c9bf3b05d91c1273dd8d9fc18e2  kiwi-r132-g3/kiwi-official-x64.apk' | sha256sum -c -
+          python3 - <<'PYAPK'
+          import hashlib, pathlib, json, zipfile
+          p=pathlib.Path('kiwi-r132-g3/kiwi-official-x64.apk')
+          with zipfile.ZipFile(p) as z: assert 'AndroidManifest.xml' in z.namelist()
+          result={'source':'official kiwibrowser/src.next release tag 14310011181 x64 github apk',
+                  'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+          pathlib.Path('out/official_apk_manifest.json').write_text(json.dumps(result,indent=2))
+          print('R132_OFFICIAL_KIWI_DIRECT_ASSET_VERIFIED',result)
+          PYAPK
       - name: Enable KVM
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
