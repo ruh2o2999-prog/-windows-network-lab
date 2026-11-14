@@ -1,0 +1,1 @@
+R124 frozen G2 extension SHA256 e785817a498c342f1031a46895d9c39acc185bca89af6b5d18c15db31797514d. Single-file CMS transfer only. Original R122-07/08 strict gates retained; R121-13 24h and Android16 still NOT_RUN.
