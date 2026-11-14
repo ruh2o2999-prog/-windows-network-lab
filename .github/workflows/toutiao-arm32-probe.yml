@@ -1,0 +1,51 @@
+name: Toutiao ARM32 Android compatibility probe
+on:
+  push:
+    branches: [toutiao-dynamic-probe]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-arm32-native-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - name: Host capability evidence
+        run: |
+          mkdir -p evidence
+          uname -a | tee evidence/host.txt
+          ls -l /dev/kvm | tee -a evidence/host.txt || true
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          free -h | tee -a evidence/host.txt
+      - name: Start Android 11 Google APIs x86_64 and inspect ARM bridge
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 3072M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            set -euxo pipefail
+            mkdir -p evidence
+            for p in ro.build.version.release ro.build.version.sdk ro.product.cpu.abilist ro.product.cpu.abilist32 ro.dalvik.vm.native.bridge ro.enable.native.bridge sys.boot_completed; do
+              echo "===== $p =====" | tee -a evidence/bridge.txt
+              adb shell getprop "$p" | tee -a evidence/bridge.txt
+            done
+            adb shell 'ls -l /system/lib*/lib*translation* /system/lib*/libhoudini* 2>/dev/null || true' | tee -a evidence/bridge.txt
+            adb shell 'cat /proc/cpuinfo | head -35' | tee -a evidence/bridge.txt
+            adb shell pm list packages | head -20 > evidence/packages.txt
+            adb logcat -d -v time > evidence/boot-logcat.txt
+            test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1
+      - name: Upload evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toutiao-arm32-compatibility-probe
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 3
