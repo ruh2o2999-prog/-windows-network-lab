@@ -45,6 +45,19 @@ def status_expression(tab_id, callback_timeout_ms=6000):
     }))()'''
 
 
+def r124_background_health_expression():
+    """A separate real extension-message heartbeat; never substitutes for status."""
+    return """(async()=>new Promise((resolve,reject)=>{
+      const t=setTimeout(()=>reject(Error('R124_BACKGROUND_HEALTH_TIMEOUT')),3500);
+      try {chrome.runtime.sendMessage({type:'R124_HEALTH'},r=>{
+        clearTimeout(t);const e=chrome.runtime.lastError;
+        if(e){reject(Error('R124_HEALTH_RUNTIME:'+e.message));return;}
+        if(!r||r.protocol!=='r124-health-v1')reject(Error('R124_HEALTH_INVALID'));
+        else resolve(r);
+      });}catch(e){clearTimeout(t);reject(e);}
+    }))()"""
+
+
 def classify_error(first_error, health_error=None, health=None):
     raw = repr(first_error)
     # A syntactically returned but empty/invalid probe does not prove CDP alive.
@@ -86,6 +99,15 @@ def read_status(ws, tab_id, cdp=cdp_eval):
             health_error = ex
             result['cdpHealthError'] = repr(ex)
         result['errorClass'] = classify_error(e, health_error, health)
+        # Independently check the extension background message path.
+        # This cannot upgrade an invalid/missing R121_STATUS response to PASS.
+        try:
+            r124 = cdp(ws,r124_background_health_expression(),timeout=6)
+            result['backgroundHealth'] = r124
+            result['backgroundResponsive'] = isinstance(r124,dict) and r124.get('protocol')=='r124-health-v1'
+        except Exception as background_exc:
+            result['backgroundHealthError'] = repr(background_exc)
+            result['backgroundResponsive'] = False
     return result
 
 
@@ -106,6 +128,10 @@ def status_fields(status):
         'activeSecurityRequests': p.get('activeRequestsSent'),
         'captureError': c.get('lastError'), 'degraded': c.get('degraded'),
         'bodyBudgetBytes': (c.get('limits') or {}).get('maxCdpSessionBytes'),
+        'r124Protocol': ((status.get('r124') or {}).get('protocol')),
+        'backgroundHydrated': ((status.get('r124') or {}).get('hydrated')),
+        'durableInFlight': ((status.get('r124') or {}).get('durableInFlight')),
+        'statusAnsweredAt': ((status.get('r124') or {}).get('respondedAt')),
     }
 
 
@@ -131,6 +157,12 @@ def evaluate_gates(samples, http_delta, actual_elapsed, seconds):
         'R122-07_all_cdp_reads_acknowledged': (complete, {'valid': sum(bool(s.get('cdpOk')) for s in samples), 'total': n, 'errors': [{'sample': s.get('sample'), 'class': s.get('errorClass')} for s in samples if not s.get('cdpOk')]}),
         'R122-08_all_storage_samples_observed': (typed_storage, {'validStorage': sum(bool(s.get('storageValid')) for s in samples), 'total': n}),
     }
+    result['R124-01_real_status_protocol_verified'] = (
+        complete and all(s.get('r124Protocol') == 'r124-direct-status-v1' for s in samples),
+        {'matching':sum(s.get('r124Protocol')=='r124-direct-status-v1' for s in samples),'total':n})
+    result['R124-02_persistence_queue_state_observed'] = (
+        complete and all(type(s.get('durableInFlight')) is bool for s in samples),
+        {'seen':sum(type(s.get('durableInFlight')) is bool for s in samples),'total':n})
     return {k: {'status': 'PASS' if ok else 'FAIL', 'evidence': evidence} for k, (ok, evidence) in result.items()}
 
 
