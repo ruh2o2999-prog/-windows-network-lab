@@ -1,0 +1,114 @@
+name: Kiwi R132 Android11 R131 300s single-file secured handoff
+on:
+  push:
+    branches: [kiwi-r132-singlefile-g3-20261114]
+    paths:
+      - '.github/workflows/kiwi-r132-singlefile-g3.yml'
+      - 'kiwi-r132-g3/ci/**'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  r131-android300:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preflight source and setup evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet websocket-client
+          python3 -m py_compile kiwi-r132-g3/ci/r132_android_g3.py kiwi-android-lab/download_kiwi.py
+          mkdir -p kiwi-r132-g3/out out
+      - name: Publish one-time public certificate only
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:3072 \
+            -keyout /tmp/r132-one-private.pem -out /tmp/r132-one-cert.pem \
+            -sha256 -days 1 -nodes -subj '/CN=KiwiR132SingleFile/' >/dev/null 2>&1
+          chmod 600 /tmp/r132-one-private.pem
+          ITEM="exchange/r132-single-${GITHUB_RUN_ID}.crt"
+          mkdir -p exchange
+          cp /tmp/r132-one-cert.pem "$ITEM"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$ITEM"
+          git commit -m "ci(r132-single): publish single-use certificate ${GITHUB_RUN_ID} [skip ci]"
+          git push origin HEAD:kiwi-r132-singlefile-g3-20261114
+          echo "R132_SINGLE_PUBLIC_CERT_READY=$ITEM"
+      - name: Receive ONE sealed file, decrypt in runner, verify frozen hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="exchange/r132-single-${GITHUB_RUN_ID}.p7m.b64"
+          FOUND=0
+          for attempt in $(seq 1 180); do
+            git fetch -q origin '+refs/heads/kiwi-r132-singlefile-g3-20261114:refs/remotes/origin/kiwi-r132-singlefile-g3-20261114'
+            if git show "origin/kiwi-r132-singlefile-g3-20261114:${FILE}" > /tmp/r132-one.p7m.b64 2>/dev/null; then
+              FOUND=1; break
+            fi
+            sleep 4
+          done
+          test "$FOUND" = 1 || { echo R132_SINGLEFILE_TRANSFER_TIMEOUT; exit 23; }
+          base64 -d /tmp/r132-one.p7m.b64 > /tmp/r132-one.p7m
+          mkdir -p kiwi-r132-g3/assets
+          openssl cms -decrypt -binary -inform DER -in /tmp/r132-one.p7m \
+            -recip /tmp/r132-one-cert.pem -inkey /tmp/r132-one-private.pem \
+            -out kiwi-r132-g3/assets/Kiwi_R131_frozen.zip
+          echo 'ce1624f9c315aae91a34f009c3e13e885e1d0c9471ddcc7ef75e6658778d728c  kiwi-r132-g3/assets/Kiwi_R131_frozen.zip' | sha256sum -c -
+          python3 - <<'PY'
+          import json,zipfile,pathlib,hashlib
+          p=pathlib.Path('kiwi-r132-g3/assets/Kiwi_R131_frozen.zip')
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              m=json.loads(z.read('manifest.json'))
+              assert m['manifest_version']==2 and m['version']=='0.4.59' and m.get('version_name')=='rc12-r131'
+              assert len(z.namelist())==101
+          print('R132_SINGLEFILE_ZIP_VERIFIED',p.stat().st_size,hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+          rm -f /tmp/r132-one.p7m /tmp/r132-one.p7m.b64 /tmp/r132-one-private.pem
+      - name: Download pinned official Kiwi x64
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 kiwi-android-lab/download_kiwi.py
+          cp kiwi-official-x64.apk kiwi-r132-g3/kiwi-official-x64.apk
+          echo '38a5e730b114fa508bafe75ca57e27a3ed923c9bf3b05d91c1273dd8d9fc18e2  kiwi-r132-g3/kiwi-official-x64.apk' | sha256sum -c -
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+          ls -l /dev/kvm || true
+      - name: REAL Kiwi Android 11 300-second business verification
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 kiwi-r132-g3/ci/r132_android_g3.py
+      - name: Remove all temporary plaintext and keys
+        if: always()
+        shell: bash
+        run: |
+          rm -f kiwi-r132-g3/assets/Kiwi_R131_frozen.zip kiwi-r132-g3/kiwi-official-x64.apk
+          rm -f /tmp/r132-one.p7m /tmp/r132-one.p7m.b64 /tmp/r132-one-private.pem /tmp/r132-one-cert.pem
+      - name: Preserve only verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-r132-singlefile-android300-evidence
+          path: |
+            kiwi-r132-g3/out/
+            out/official_apk_manifest.json
+            out/official_apk_download_error.json
+          if-no-files-found: warn
