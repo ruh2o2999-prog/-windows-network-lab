@@ -1,0 +1,62 @@
+name: Toutiao ARM32 runtime matrix API33 API35
+on:
+  push:
+    branches: [toutiao-dynamic-probe]
+    paths: [.github/workflows/toutiao-api-matrix.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [33,35]
+    steps:
+      - name: Fetch disposable-signed verifier-repaired APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence apk
+          curl -fsSL --retry 2 --max-time 190 -o /tmp/test.zip 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-b910-81f4-b7f0-8f2ab953c7ac/raw?se=2026-11-14T14%3A30%3A53Z&sp=r&sv=2026-06-06&sr=b&scid=7be655b8-0b1d-5cd8-96c5-5e7bb52407d4&skoid=3804227d-1b52-417d-afd9-9ffbb50fa53e&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-11-14T08%3A49%3A25Z&ske=2026-11-15T08%3A49%3A25Z&sks=b&skv=2026-06-06&sig=rwjeaVgCTgIlptCK7S8EuixXbXtyu7Qm9TeTspsM8kI%3D'
+          unzip -P 5618 -j -o /tmp/test.zip '*.apk' -d apk
+          sha256sum apk/*.apk | tee evidence/apk-hash.txt
+          test "$(sha256sum apk/*.apk | cut -d' ' -f1)" = "e02f837f096cb2076f2adfaea0c1132755328c36c89df99f6aa45dc498b3d3a0"
+          cp apk/*.apk /tmp/toutiao_verifier_test.apk
+      - name: Enable KVM
+        run: if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+      - name: Start real Android API ${{ matrix.api }} and observe R5 test APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb shell getprop | grep -E 'ro.build.version.sdk|ro.dalvik.vm.native.bridge|ro.product.cpu.abilist|sys.boot_completed' | tee evidence/bridge.txt
+            adb logcat -c
+            adb install -r /tmp/toutiao_verifier_test.apk | tee evidence/install.txt
+            adb logcat -d -v threadtime > evidence/install-logcat.txt
+            adb shell monkey -p com.ss.android.article.news -c android.intent.category.LAUNCHER 1 | tee evidence/start.txt
+            adb shell sleep 12
+            adb shell pidof com.ss.android.article.news | tee evidence/pid.txt
+            adb shell dumpsys activity activities > evidence/activities.txt
+            adb logcat -d -v threadtime > evidence/runtime-logcat.txt
+            adb exec-out screencap -p > evidence/screen.png
+            adb shell uiautomator dump /sdcard/window.xml
+            adb pull /sdcard/window.xml evidence/window.xml
+      - name: Preserve raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toutiao-r5-api${{ matrix.api }}-arm32-dynamic
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 3
