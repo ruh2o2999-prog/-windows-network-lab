@@ -155,13 +155,18 @@ def import_extension():
  consent=tap_match(xml,['Add extension','Install extension','Add','安装扩展','添加扩展'],'extension_confirm')
  if consent:xml=consent
  time.sleep(6);xml=xml_snap('extension_after_import')
- # Open real extension details/options to ensure a visible panel CDP target.
- details=tap_match(xml,['Details','详情'],'r132_extension_details',exact=True)
- if details:
-  options=tap_match(details,['Extension options','Options','选项'],'r132_extension_options')
-  if options:xml=options
- imported=('网站数据观察与导出' in xml or '网站数据观察与导出' in xml_snap('extension_post_options_manager'))
- return gate('A6_REAL_KIWI_IMPORT',imported,{'productionNameVisible':('网站数据观察与导出' in xml),'pickerStillOpen':'documentsui' in xml.lower()})
+ # The initial extension management page is authoritative; opening Details/
+ # Options may navigate away and invalidate subsequent UI assertions.
+ # Run 43559322367 proved the actual extension was installed but old harness
+ # looked at the overflow menu instead, reporting false FAIL.
+ imported=('网站数据观察与导出' in xml and 'rc12-r131' in xml and 'background page' in xml.lower())
+ ext_id=re.search(r'ID:\s*([a-p]{32})',xml)
+ return gate('A6_REAL_KIWI_IMPORT',imported,{
+  'productionNameVisible':'网站数据观察与导出' in xml,
+  'versionVisible':'rc12-r131' in xml,
+  'backgroundPageVisible':'background page' in xml.lower(),
+  'extensionId':ext_id.group(1) if ext_id else None,
+  'pickerStillOpen':'documentsui' in xml.lower()})
 def _status_expr(tab_id):
  return '''(async()=>new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(Error('R122_STATUS_CALLBACK_TIMEOUT')),6000);try{chrome.runtime.sendMessage({type:'R121_STATUS',tabId:''' + str(int(tab_id)) + '''},r=>{clearTimeout(t);const e=chrome.runtime.lastError;if(e){reject(Error('R122_RUNTIME_LAST_ERROR:'+e.message));return;}if(!r||typeof r!=='object'){reject(Error('R122_INVALID_STATUS_RESPONSE'));return;}resolve(r)})}catch(e){clearTimeout(t);reject(e)}}))()'''
 def _direct_expr(tab_id):
@@ -226,7 +231,7 @@ def main():
    row['statusTimestamp']=(status.get('r124') or {}).get('respondedAt')
   except Exception as e:
    row['cdpOk']=False;row['storageValid']=False;row['originalError']=repr(e)[:450]
-  if i in (0,12,14,15,16,17,18,20):
+  if i in (0,12,14,15,16,17,18,19,20):
    for name,expr in [ ('direct',_direct_expr(fixture['id'])),('microtask','Promise.resolve().then(()=>({ok:true,ts:Date.now()}))'),('timer','new Promise(r=>setTimeout(()=>r({ok:true,ts:Date.now()}),0))')]:
     try:row[name]={'ok':True,'value':panel_cdp.eval(expr,timeout=5)}
     except Exception as e:row[name]={'ok':False,'error':repr(e)[:230]}
