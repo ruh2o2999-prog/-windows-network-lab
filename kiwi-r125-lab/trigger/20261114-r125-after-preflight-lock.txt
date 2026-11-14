@@ -1,0 +1,1 @@
+Only G3 CI pipeline preflight checksum fix. Frozen extension SHA256 965952e8e7a8ba68cab4f35656f7ef29caa5fdf2817d53de89a8315d72037b7e, frozen native sampler SHA256 730833998db9616509d8beeed238815ad2c65bed02ddc2bf0e40cad83e22fa1f. No APK/source changes.
