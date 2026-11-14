@@ -3,7 +3,8 @@ on:
   push:
     branches: [tt935-arm32-native-guest-v01]
     paths:
-      - '.github/workflows/tt935-v045-real-avd.yml'
+      - '.github/workflows/tt935-d01-v045-redroid-real-apk.yml'
+      - 'tt935-redroid/**'
   workflow_dispatch:
 permissions:
   contents: write
