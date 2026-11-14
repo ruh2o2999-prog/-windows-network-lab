@@ -12,7 +12,7 @@ def execute(run,snapshot,state,ws,tid,extension_id,fixture_url,fixture,
     out=Path(out);out.mkdir(exist_ok=True)
     result={"name":"R126 genuine Kiwi default-on / pause / refresh / restart",
             "scope":"official Kiwi Android11 x86_64","gates":{},"steps":[],"errors":[],
-            "uncovered":["Android16 real phone","1 hour continuous soak","R122-07/08 at 240 seconds","YouTube 403"]}
+            "uncovered":["Android16 real phone","R121-13 routine 180s stability NOT_RUN","R122-07/08 at 240 seconds","YouTube 403"]}
     def gate(name,ok,e):
         stat="PASS" if ok else "FAIL"
         result["gates"][name]={"status":stat,"evidence":e}
@@ -142,21 +142,17 @@ def execute(run,snapshot,state,ws,tid,extension_id,fixture_url,fixture,
                 resumed.get("clicked") and enabled.get("autoEnabled") is True
                 and u2.get("button")=="暂停观察",
                 {"click":resumed,"status":enabled,"ui":u2,"poll":t2[-4:]})
-            # Re-activate original real HTTP tab, without synthetic background events.
+            # R127 fix: a browser force-stop can discard the old numeric tab ID.
+            # Resume must be judged against a *current* real HTTP page, not a stale ID.
+            # No synthetic event injection and no weak-only health/status PASS.
+            from r127_resume_verification import verify_resume
             try:
-                js="(async()=>new Promise((yes,no)=>chrome.tabs.update("+str(tid)+",{active:true},r=>chrome.runtime.lastError?no(Error(chrome.runtime.lastError.message)):yes({id:r.id,url:r.url}))))()"
-                ret=eval_js(js)
-                log("reactivate_real_tab",ret)
-            except Exception as exc:log("reactivate_real_tab_error",repr(exc))
-            count=0;last=None
-            for _ in range(20):
-                time.sleep(.75)
-                try:
-                    last=msg("R121_STATUS")
-                    if (last.get("capture") or {}).get("mode")=="debugger":
-                        count+=1;break
-                except Exception as exc:last={"error":repr(exc)}
-            gate("R126-09_auto_CDP_resumes",count>0,{"last":last})
+                okay, resume_evidence = verify_resume(
+                    eval_js, msg, fixture_url, fixture, tid, attempts=24, interval=.75)
+            except Exception as exc:
+                okay, resume_evidence = False, {"oldTabId":tid,"error":repr(exc)}
+            log("r127_actual_tab_after_restart",resume_evidence)
+            gate("R126-09_auto_CDP_resumes",okay,resume_evidence)
         else:
             for key in ["R126-07_paused_setting_persisted_after_restart",
                         "R126-08_original_UI_resumes_automatic_observation","R126-09_auto_CDP_resumes"]:
